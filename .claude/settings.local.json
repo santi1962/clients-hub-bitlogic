@@ -61,7 +61,8 @@
       "Bash(git config *)",
       "Bash(git check-ignore *)",
       "Bash(git add *)",
-      "Bash(git commit -m 'chore: prepare bitlogic client hub v1.0.0 for production deploy *)"
+      "Bash(git commit -m 'chore: prepare bitlogic client hub v1.0.0 for production deploy *)",
+      "Bash(git commit -m 'refactor: remove mock data usage from UI \\(Opción A\\) *)"
     ]
   }
 }

@@ -47,7 +47,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { pushActivity } from "@/lib/activity-log";
-import { planRepository } from "@/lib/repositories";
 import { formatMoney } from "@/lib/mock-data";
 import {
   useClients,
@@ -122,7 +121,7 @@ export function NewClientWorkflow({ trigger }: { trigger?: React.ReactNode }) {
   const [createTask, setCreateTask] = useState(true);
   const [initialStatus, setInitialStatus] = useState<"activo" | "pendiente">("pendiente");
 
-  const plans = planRepository.findAll();
+  const { data: plans = [] } = usePlans();
   const plan = plans.find((p) => p.id === planId);
 
   const s1Valid = name.trim() && email.trim();

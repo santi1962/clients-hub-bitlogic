@@ -23,11 +23,13 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getClient } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { AuthProvider, useAuth, type AuthUser } from "@/lib/auth";
+import { useClient } from "@/lib/queries";
 
-export const DEMO_CLIENT_ID = "c3";
+// Para subrutas del portal (portal.datos, portal.dominios, etc)
+// En desarrollo, DEMO_CLIENT_ID permite testing sin datos reales
+export const DEMO_CLIENT_ID = import.meta.env.PROD ? null : "c3";
 
 export const Route = createFileRoute("/portal")({
   head: () => ({ meta: [{ title: "Portal del cliente — Bitlogic" }] }),
@@ -105,9 +107,9 @@ function PortalContent({ user, isDemoMode }: { user: AuthUser; isDemoMode: boole
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const isStaff = user.role !== "cliente";
 
-  // Resolver clientId: propio del usuario → o demo fallback
-  const clientId = user.clientId ?? DEMO_CLIENT_ID;
-  const client = getClient(clientId) ?? getClient(DEMO_CLIENT_ID)!;
+  // Usar clientId real del usuario
+  const clientId = user.clientId;
+  const { data: client } = useClient(clientId);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
