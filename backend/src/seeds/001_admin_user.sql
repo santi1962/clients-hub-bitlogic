@@ -1,0 +1,21 @@
+-- ============================================================
+-- Seed 001 — Usuario admin inicial (REFERENCIA)
+-- ============================================================
+-- Este archivo es solo documentación.
+-- Para insertar el usuario, usá el script Node.js que genera
+-- el hash bcrypt dinámicamente:
+--
+--   npm run seed
+--
+-- Equivalente SQL (reemplazar <hash> con el generado):
+--   INSERT INTO users (id, name, email, password_hash, role, status)
+--   VALUES (
+--     gen_random_uuid(),
+--     'Admin Bitlogic',
+--     'admin@bitlogic.com.ar',
+--     '<hash_bcrypt_generado_por_seed.js>',
+--     'super_admin',
+--     'active'
+--   )
+--   ON CONFLICT (email) DO NOTHING;
+-- ============================================================

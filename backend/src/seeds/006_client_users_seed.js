@@ -1,0 +1,58 @@
+/**
+ * Client Users Seed (Phase 3B)
+ * Creates client users for real portal testing
+ */
+import bcrypt from "bcrypt";
+import pool from "../db/pool.js";
+
+const PASSWORD = "Cambiar123!";
+
+const CLIENTS = [
+  {
+    email: "cliente1@bitlogic.test",
+    name: "Cliente 1",
+    clientId: "22222222-2222-2222-2222-000000000001",
+  },
+  {
+    email: "cliente2@bitlogic.test",
+    name: "Cliente 2",
+    clientId: "22222222-2222-2222-2222-000000000002",
+  },
+  {
+    email: "cliente3@bitlogic.test",
+    name: "Cliente 3",
+    clientId: "22222222-2222-2222-2222-000000000003",
+  },
+  {
+    email: "cliente4@bitlogic.test",
+    name: "Cliente 4",
+    clientId: "22222222-2222-2222-2222-000000000004",
+  },
+];
+
+export async function run() {
+  const client = await pool.connect();
+  try {
+    console.log("  Seeding client users…");
+    const passwordHash = await bcrypt.hash(PASSWORD, 12);
+
+    for (const u of CLIENTS) {
+      const { rowCount } = await client.query(
+        `INSERT INTO users (name, email, password_hash, role, status, client_id)
+         VALUES ($1, $2, $3, 'cliente', 'active', $4)
+         ON CONFLICT (email) DO NOTHING`,
+        [u.name, u.email, passwordHash, u.clientId],
+      );
+
+      if (rowCount > 0) {
+        console.log(`  ✓ ${u.email} / ${PASSWORD}`);
+      } else {
+        console.log(`  → ${u.email} ya existe`);
+      }
+    }
+
+    console.log(`  ✓ Client Users: ${CLIENTS.length} usuarios`);
+  } finally {
+    client.release();
+  }
+}

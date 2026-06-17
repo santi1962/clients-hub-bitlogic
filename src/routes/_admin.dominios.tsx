@@ -1,0 +1,162 @@
+﻿import { createFileRoute, Link } from "@tanstack/react-router";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { StatusBadge } from "@/components/status-badge";
+import { EmptyState } from "@/components/empty-state";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Plus, Search, AlertTriangle, Trash2 } from "lucide-react";
+import { formatDate } from "@/lib/mock-data";
+import { useDomains, useDeleteDomain } from "@/lib/queries";
+import { useState } from "react";
+
+export const Route = createFileRoute("/_admin/dominios")({
+  head: () => ({ meta: [{ title: "Dominios — Bitlogic" }] }),
+  component: DominiosPage,
+});
+
+function DominiosPage() {
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
+  const [expiringInDays, setExpiringInDays] = useState("");
+
+  const { data, isLoading, isError } = useDomains({
+    search: search || undefined,
+    status: status || undefined,
+    expiringInDays: expiringInDays ? parseInt(expiringInDays) : undefined,
+  });
+
+  const deleteMutation = useDeleteDomain();
+  const domains = data?.data ?? [];
+
+  const daysUntil = (expiration: string) => {
+    const diff = new Date(expiration).getTime() - Date.now();
+    return Math.round(diff / (1000 * 60 * 60 * 24));
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Dominios</h1>
+          <p className="text-sm text-muted-foreground">Gestiona todos los dominios registrados.</p>
+        </div>
+      </div>
+
+      {isError && (
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          Error al cargar dominios.
+        </div>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Buscar</label>
+          <Input
+            placeholder="ej: ejemplo.com"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Estado</label>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger>
+              <SelectValue placeholder="Todos" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">Todos</SelectItem>
+              <SelectItem value="activo">Activo</SelectItem>
+              <SelectItem value="proximo_a_vencer">Próximo a vencer</SelectItem>
+              <SelectItem value="vencido">Vencido</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Vence en</label>
+          <Select value={expiringInDays} onValueChange={setExpiringInDays}>
+            <SelectTrigger>
+              <SelectValue placeholder="Cualquier fecha" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">Cualquier fecha</SelectItem>
+              <SelectItem value="7">7 días</SelectItem>
+              <SelectItem value="30">30 días</SelectItem>
+              <SelectItem value="90">90 días</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <Card className="border-border/60 bg-card/60">
+        <CardHeader>
+          <CardTitle className="text-base">Listado de dominios</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="p-6 space-y-3">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
+            </div>
+          ) : domains.length === 0 ? (
+            <EmptyState title="Sin dominios" description="No hay dominios disponibles." />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Dominio</TableHead>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Vencimiento</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {domains.map((d) => {
+                  const days = daysUntil(d.expirationDate);
+                  return (
+                    <TableRow key={d.id}>
+                      <TableCell className="font-medium">{d.domain}</TableCell>
+                      <TableCell>{d.clientCompany ?? "—"}</TableCell>
+                      <TableCell>
+                        {formatDate(d.expirationDate)}
+                        <div className="text-xs text-muted-foreground">{days}d</div>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={d.status} />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button asChild size="sm" variant="ghost">
+                          <Link to="/dominios/$id" params={{ id: d.id }}>
+                            Ver
+                          </Link>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
