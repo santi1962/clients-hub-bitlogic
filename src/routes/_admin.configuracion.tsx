@@ -28,6 +28,7 @@ import { Building2, FileText, Server, Wallet, Mail, MessageCircle, Save, Loader2
 import { toast } from "sonner";
 import { useState } from "react";
 import { emailApi, hestiaApi } from "@/lib/api-client";
+import { useCompanySettings, useUpdateCompanySettings } from "@/lib/queries";
 
 export const Route = createFileRoute("/_admin/configuracion")({
   head: () => ({ meta: [{ title: "Configuración — Bitlogic" }] }),
@@ -64,6 +65,21 @@ async function testHestiaConnection() {
 }
 
 function SettingsPage() {
+  const { data: settings } = useCompanySettings();
+  const updateMutation = useUpdateCompanySettings();
+
+  const [formData, setFormData] = useState({
+    companyName: settings?.companyName || "",
+    contactEmail: settings?.contactEmail || "",
+    phone: settings?.phone || "",
+    taxId: settings?.taxId || "",
+    address: settings?.address || "",
+  });
+
+  const handleSaveCompany = () => {
+    updateMutation.mutate(formData);
+  };
+
   return (
     <div className="space-y-6 max-w-5xl">
       <PageHeader
@@ -106,11 +122,33 @@ function SettingsPage() {
             desc="Aparecen en avisos, emails y portal del cliente"
           >
             <Grid>
-              <Field label="Nombre comercial" defaultValue="Bitlogic" />
-              <Field label="Email de contacto" type="email" defaultValue="hola@bitlogic.com.ar" />
-              <Field label="Teléfono" defaultValue="+54 9 11 5555 1234" />
-              <Field label="CUIT (opcional)" defaultValue="30-71234567-8" />
-              <Field label="Dirección" defaultValue="Av. Corrientes 1234, CABA" wide />
+              <CompanyField
+                label="Nombre comercial"
+                value={formData.companyName}
+                onChange={(v) => setFormData({...formData, companyName: v})}
+              />
+              <CompanyField
+                label="Email de contacto"
+                type="email"
+                value={formData.contactEmail}
+                onChange={(v) => setFormData({...formData, contactEmail: v})}
+              />
+              <CompanyField
+                label="Teléfono"
+                value={formData.phone}
+                onChange={(v) => setFormData({...formData, phone: v})}
+              />
+              <CompanyField
+                label="CUIT (opcional)"
+                value={formData.taxId}
+                onChange={(v) => setFormData({...formData, taxId: v})}
+              />
+              <CompanyField
+                label="Dirección"
+                value={formData.address}
+                onChange={(v) => setFormData({...formData, address: v})}
+                wide
+              />
               <div className="md:col-span-2 space-y-1.5">
                 <Label>Logo</Label>
                 <div className="flex items-center gap-3">
@@ -127,7 +165,7 @@ function SettingsPage() {
                 </div>
               </div>
             </Grid>
-            <SaveBar onSave={() => save("Datos de empresa")} />
+            <SaveBar onSave={handleSaveCompany} isLoading={updateMutation.isPending} />
           </SectionCard>
         </TabsContent>
 
@@ -343,11 +381,32 @@ function Field({
   );
 }
 
-function SaveBar({ onSave }: { onSave: () => void }) {
+function CompanyField({
+  label,
+  value,
+  onChange,
+  type = "text",
+  wide,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+  wide?: boolean;
+}) {
+  return (
+    <div className={"space-y-1.5 " + (wide ? "md:col-span-2" : "")}>
+      <Label>{label}</Label>
+      <Input type={type} value={value} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+}
+
+function SaveBar({ onSave, isLoading }: { onSave: () => void; isLoading?: boolean }) {
   return (
     <div className="flex justify-end pt-2 border-t border-border/40">
-      <Button size="sm" onClick={onSave}>
-        <Save className="mr-2 h-4 w-4" />
+      <Button size="sm" onClick={onSave} disabled={isLoading}>
+        {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
         Guardar cambios
       </Button>
     </div>

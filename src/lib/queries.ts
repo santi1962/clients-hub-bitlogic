@@ -637,3 +637,27 @@ export function useReopenTask(id: string) {
 
 // Re-export type for pages
 export type { HostingServiceFull };
+
+// ─────────────────────────────────────────────────────────────
+// SETTINGS
+// ─────────────────────────────────────────────────────────────
+import { settingsApi } from "./api-client";
+
+export function useCompanySettings() {
+  return useQuery({
+    queryKey: ["settings", "company"],
+    queryFn: () => settingsApi.getCompany(),
+  });
+}
+
+export function useUpdateCompanySettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, any>) => settingsApi.updateCompany(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings", "company"] });
+      toast.success("Configuración guardada");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al guardar configuración"),
+  });
+}

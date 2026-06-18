@@ -860,3 +860,13 @@ export const hestiaApi = {
 // WhatsApp    → Twilio / WhatsApp Cloud API (fase futura)
 //   • POST /notifications/whatsapp
 // ============================================================
+
+// ============================================================
+// SETTINGS
+// ============================================================
+export const settingsApi = {
+  getCompany: () => request("/settings/company"),
+  updateCompany: (data: Record<string, any>) =>
+    request("/settings/company", { method: "PUT", body: data }),
+  getReadiness: () => request("/settings/readiness"),
+};
