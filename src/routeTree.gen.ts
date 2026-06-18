@@ -48,6 +48,7 @@ import { Route as AdminArquitecturaRouteImport } from './routes/_admin.arquitect
 import { Route as AdminServiciosIndexRouteImport } from './routes/_admin.servicios.index'
 import { Route as AdminClientesIndexRouteImport } from './routes/_admin.clientes.index'
 import { Route as AdminTareasIdRouteImport } from './routes/_admin.tareas.$id'
+import { Route as AdminSoporteNuevoRouteImport } from './routes/_admin.soporte.nuevo'
 import { Route as AdminSoporteIdRouteImport } from './routes/_admin.soporte.$id'
 import { Route as AdminServiciosIdRouteImport } from './routes/_admin.servicios.$id'
 import { Route as AdminDominiosIdRouteImport } from './routes/_admin.dominios.$id'
@@ -247,6 +248,11 @@ const AdminTareasIdRoute = AdminTareasIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => AdminTareasRoute,
 } as any)
+const AdminSoporteNuevoRoute = AdminSoporteNuevoRouteImport.update({
+  id: '/nuevo',
+  path: '/nuevo',
+  getParentRoute: () => AdminSoporteRoute,
+} as any)
 const AdminSoporteIdRoute = AdminSoporteIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -308,6 +314,7 @@ export interface FileRoutesByFullPath {
   '/dominios/$id': typeof AdminDominiosIdRoute
   '/servicios/$id': typeof AdminServiciosIdRoute
   '/soporte/$id': typeof AdminSoporteIdRoute
+  '/soporte/nuevo': typeof AdminSoporteNuevoRoute
   '/tareas/$id': typeof AdminTareasIdRoute
   '/clientes/': typeof AdminClientesIndexRoute
   '/servicios/': typeof AdminServiciosIndexRoute
@@ -351,6 +358,7 @@ export interface FileRoutesByTo {
   '/dominios/$id': typeof AdminDominiosIdRoute
   '/servicios/$id': typeof AdminServiciosIdRoute
   '/soporte/$id': typeof AdminSoporteIdRoute
+  '/soporte/nuevo': typeof AdminSoporteNuevoRoute
   '/tareas/$id': typeof AdminTareasIdRoute
   '/clientes': typeof AdminClientesIndexRoute
   '/servicios': typeof AdminServiciosIndexRoute
@@ -397,6 +405,7 @@ export interface FileRoutesById {
   '/_admin/dominios/$id': typeof AdminDominiosIdRoute
   '/_admin/servicios/$id': typeof AdminServiciosIdRoute
   '/_admin/soporte/$id': typeof AdminSoporteIdRoute
+  '/_admin/soporte/nuevo': typeof AdminSoporteNuevoRoute
   '/_admin/tareas/$id': typeof AdminTareasIdRoute
   '/_admin/clientes/': typeof AdminClientesIndexRoute
   '/_admin/servicios/': typeof AdminServiciosIndexRoute
@@ -443,6 +452,7 @@ export interface FileRouteTypes {
     | '/dominios/$id'
     | '/servicios/$id'
     | '/soporte/$id'
+    | '/soporte/nuevo'
     | '/tareas/$id'
     | '/clientes/'
     | '/servicios/'
@@ -486,6 +496,7 @@ export interface FileRouteTypes {
     | '/dominios/$id'
     | '/servicios/$id'
     | '/soporte/$id'
+    | '/soporte/nuevo'
     | '/tareas/$id'
     | '/clientes'
     | '/servicios'
@@ -531,6 +542,7 @@ export interface FileRouteTypes {
     | '/_admin/dominios/$id'
     | '/_admin/servicios/$id'
     | '/_admin/soporte/$id'
+    | '/_admin/soporte/nuevo'
     | '/_admin/tareas/$id'
     | '/_admin/clientes/'
     | '/_admin/servicios/'
@@ -819,6 +831,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminTareasIdRouteImport
       parentRoute: typeof AdminTareasRoute
     }
+    '/_admin/soporte/nuevo': {
+      id: '/_admin/soporte/nuevo'
+      path: '/nuevo'
+      fullPath: '/soporte/nuevo'
+      preLoaderRoute: typeof AdminSoporteNuevoRouteImport
+      parentRoute: typeof AdminSoporteRoute
+    }
     '/_admin/soporte/$id': {
       id: '/_admin/soporte/$id'
       path: '/$id'
@@ -864,10 +883,12 @@ const AdminDominiosRouteWithChildren = AdminDominiosRoute._addFileChildren(
 
 interface AdminSoporteRouteChildren {
   AdminSoporteIdRoute: typeof AdminSoporteIdRoute
+  AdminSoporteNuevoRoute: typeof AdminSoporteNuevoRoute
 }
 
 const AdminSoporteRouteChildren: AdminSoporteRouteChildren = {
   AdminSoporteIdRoute: AdminSoporteIdRoute,
+  AdminSoporteNuevoRoute: AdminSoporteNuevoRoute,
 }
 
 const AdminSoporteRouteWithChildren = AdminSoporteRoute._addFileChildren(

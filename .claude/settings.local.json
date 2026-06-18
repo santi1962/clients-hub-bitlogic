@@ -103,7 +103,9 @@
       "Bash(git commit -m ' *)",
       "Bash(curl -s -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJzdXBlcl9hZG1pbiIsImlhdCI6MTc4MTc5MjA4NiwiZXhwIjoxNzgxNzk1Njg2fQ.EmaaoPgz-EchrZNBba-k0OMBAj65L20Hn4EDwyw0dzw' http://localhost:3002/api/clients)",
       "PowerShell(Stop-Process -Force)",
-      "Bash(psql postgresql://postgres:Waltdisney142!@localhost:5432/bitlogic)"
+      "Bash(psql postgresql://postgres:Waltdisney142!@localhost:5432/bitlogic)",
+      "Bash(pkill -f \"npm run preview\")",
+      "Bash(git commit -m 'feat: implement complete support ticketing system UI *)"
     ]
   }
 }

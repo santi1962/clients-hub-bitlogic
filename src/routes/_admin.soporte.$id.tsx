@@ -57,7 +57,7 @@ function TicketDetail() {
     );
   }
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!message.trim()) return;
     addMessageMutation.mutate(
       { message, isInternal },
@@ -68,6 +68,14 @@ function TicketDetail() {
         },
       },
     );
+  };
+
+  const handleResolve = async () => {
+    resolveTicketMutation.mutate();
+  };
+
+  const handleClose = async () => {
+    closeTicketMutation.mutate();
   };
 
   const messages = ticket.messages || [];
@@ -91,7 +99,7 @@ function TicketDetail() {
         <div className="flex flex-wrap gap-2">
           {ticket.status !== "resuelto" && ticket.status !== "cerrado" && (
             <>
-              <Button variant="outline" onClick={() => resolveTicketMutation.mutate()}>
+              <Button variant="outline" onClick={handleResolve} disabled={resolveTicketMutation.isPending}>
                 {resolveTicketMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
@@ -99,7 +107,7 @@ function TicketDetail() {
                 )}
                 Resolver
               </Button>
-              <Button variant="outline" onClick={() => closeTicketMutation.mutate()}>
+              <Button variant="outline" onClick={handleClose} disabled={closeTicketMutation.isPending}>
                 {closeTicketMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
