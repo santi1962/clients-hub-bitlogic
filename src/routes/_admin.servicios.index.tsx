@@ -230,6 +230,7 @@ function ServicesPage() {
                   <TableHead>Plan</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead className="w-[180px]">Espacio</TableHead>
+                  <TableHead>Email</TableHead>
                   <TableHead>Alta</TableHead>
                   <TableHead>Próx. venc.</TableHead>
                   <TableHead className="text-right">Precio</TableHead>
@@ -254,6 +255,9 @@ function ServicesPage() {
                             {s.usedGB} / {s.totalGB} GB
                           </p>
                         </div>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {s.usedEmails} / {s.totalEmails}
                       </TableCell>
                       <TableCell>{formatDate(s.startDate)}</TableCell>
                       <TableCell>{formatDate(s.nextDueDate)}</TableCell>
