@@ -105,7 +105,8 @@
       "PowerShell(Stop-Process -Force)",
       "Bash(psql postgresql://postgres:Waltdisney142!@localhost:5432/bitlogic)",
       "Bash(pkill -f \"npm run preview\")",
-      "Bash(git commit -m 'feat: implement complete support ticketing system UI *)"
+      "Bash(git commit -m 'feat: implement complete support ticketing system UI *)",
+      "Bash(git commit -m 'cleanup: remove mock users from UI *)"
     ]
   }
 }

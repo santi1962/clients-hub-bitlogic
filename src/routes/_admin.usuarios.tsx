@@ -70,56 +70,7 @@ interface InternalUser {
   lastLogin: string;
 }
 
-const INITIAL_INTERNAL: InternalUser[] = [
-  {
-    id: "u-001",
-    name: "Mariano Fernández",
-    email: "mariano@bitlogic.com.ar",
-    role: "super_admin",
-    status: "activo",
-    lastLogin: "Hace 2 min",
-  },
-  {
-    id: "u-002",
-    name: "Lucía Pereyra",
-    email: "lucia@bitlogic.com.ar",
-    role: "admin",
-    status: "activo",
-    lastLogin: "Hoy, 09:14",
-  },
-  {
-    id: "u-003",
-    name: "Diego Sosa",
-    email: "diego@bitlogic.com.ar",
-    role: "soporte",
-    status: "activo",
-    lastLogin: "Ayer, 18:42",
-  },
-  {
-    id: "u-004",
-    name: "Carolina Méndez",
-    email: "caro@bitlogic.com.ar",
-    role: "finanzas",
-    status: "activo",
-    lastLogin: "Hoy, 08:01",
-  },
-  {
-    id: "u-005",
-    name: "Nicolás Romero",
-    email: "nico@bitlogic.com.ar",
-    role: "soporte",
-    status: "invitado",
-    lastLogin: "—",
-  },
-  {
-    id: "u-006",
-    name: "Antonella Ruiz",
-    email: "ann@bitlogic.com.ar",
-    role: "admin",
-    status: "inactivo",
-    lastLogin: "Hace 28 días",
-  },
-];
+const INITIAL_INTERNAL: InternalUser[] = [];
 
 function StatusPill({ status }: { status: InternalUser["status"] }) {
   const map = {
