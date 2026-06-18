@@ -128,7 +128,8 @@
       "Bash(psql postgresql://postgres:Waltdisney142!@localhost:5432/bitlogic -c \"SELECT id, email, name, role, client_id, status FROM users WHERE email = 'logistica@fbtoolsherramientas.com';\")",
       "Bash(npm exec -- node -e ' *)",
       "Bash(curl -X POST http://localhost:3002/api/temp/create-service)",
-      "Bash(git commit -m 'chore: revert mock data creation, keep system clean *)"
+      "Bash(git commit -m 'chore: revert mock data creation, keep system clean *)",
+      "Bash(git commit -m 'cleanup: completely remove all mock data from mock-data.ts *)"
     ]
   }
 }

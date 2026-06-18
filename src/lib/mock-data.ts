@@ -71,26 +71,14 @@ export interface PaymentNotice {
   status: NoticeStatus;
 }
 
-export const plans: Plan[] = [
-  { id: "p-starter", name: "Starter", storageGB: 5, sites: 1, emails: 5, monthlyPrice: 8 },
-  { id: "p-pro", name: "Pro", storageGB: 15, sites: 3, emails: 20, monthlyPrice: 18 },
-  {
-    id: "p-business",
-    name: "Business",
-    storageGB: 40,
-    sites: "ilimitados",
-    emails: "ilimitados",
-    monthlyPrice: 35,
-  },
-];
-
+// VACÍO - Todos los datos deben cargarse desde la API backend
+export const plans: Plan[] = [];
 export const clients: Client[] = [];
 export const services: HostingService[] = [];
 export const payments: Payment[] = [];
 export const notices: PaymentNotice[] = [];
 
-// Hardcoded "today" para hacer datos consistentes en demo
-export const TODAY = "2026-06-16";
+export const TODAY = "2026-06-18";
 
 export const getClient = (id: string) => clients.find((c) => c.id === id);
 export const getPlan = (id: string) => plans.find((p) => p.id === id);
@@ -211,74 +199,31 @@ export function isWithinNextDays(d: string, days: number) {
   return diff >= 0 && diff <= days;
 }
 
-// --- KPIs / aggregations ---
+// Todos estos datos deben venir de la API backend
 export const kpis = {
-  activeClients: clients.filter((c) => c.status === "activo").length,
-  activeServices: services.filter((s) => s.status === "activo" || s.status === "proximo_a_vencer")
-    .length,
-  pendingPayments: payments.filter((p) => p.status === "pendiente").length,
-  expiredServices: services.filter((s) => s.status === "vencido" || s.status === "suspendido")
-    .length,
-  monthlyRevenue: services
-    .filter((s) => s.status === "activo" || s.status === "proximo_a_vencer")
-    .reduce((acc, s) => acc + s.monthlyPrice, 0),
+  activeClients: 0,
+  activeServices: 0,
+  pendingPayments: 0,
+  expiredServices: 0,
+  monthlyRevenue: 0,
 };
 
 export function billingMetrics() {
-  const monthly = kpis.monthlyRevenue;
-  const annualProjection = monthly * 12;
-  const collectedThisMonth = payments
-    .filter((p) => p.status === "pagado" && p.paidAt && p.paidAt.startsWith(TODAY.slice(0, 7)))
-    .reduce((a, p) => a + p.amount, 0);
-  const pending = payments
-    .filter((p) => p.status === "pendiente")
-    .reduce((a, p) => a + p.amount, 0);
-  const debt = payments.filter((p) => p.status === "vencido").reduce((a, p) => a + p.amount, 0);
-  return { monthly, annualProjection, collectedThisMonth, pending, debt };
+  return { monthly: 0, annualProjection: 0, collectedThisMonth: 0, pending: 0, debt: 0 };
 }
 
 export function dashboardExtras() {
-  const dueSoon = services.filter(
-    (s) =>
-      isWithinNextDays(s.nextDueDate, 7) && s.status !== "cancelado" && s.status !== "suspendido",
-  );
-  const debtors = clients.filter((c) => clientFinancials(c.id).debt > 0);
-  const thisMonth = TODAY.slice(0, 7);
-  const newClients = clients.filter((c) => c.createdAt.startsWith(thisMonth));
-  return { dueSoon, debtors, newClients };
+  return { dueSoon: [], debtors: [], newClients: [] };
 }
 
-// Charts data (mock 12 meses)
 export function revenueLast12Months() {
-  const base = [
-    { m: "Jul 25", v: 142 },
-    { m: "Ago 25", v: 158 },
-    { m: "Sep 25", v: 165 },
-    { m: "Oct 25", v: 170 },
-    { m: "Nov 25", v: 178 },
-    { m: "Dic 25", v: 185 },
-    { m: "Ene 26", v: 192 },
-    { m: "Feb 26", v: 198 },
-    { m: "Mar 26", v: 205 },
-    { m: "Abr 26", v: 212 },
-    { m: "May 26", v: 218 },
-    { m: "Jun 26", v: 226 },
-  ];
-  return base;
+  return [];
 }
 
 export function paidVsPending() {
-  const m = billingMetrics();
-  return [
-    { name: "Cobrado", value: m.collectedThisMonth },
-    { name: "Pendiente", value: m.pending },
-    { name: "Vencido", value: m.debt },
-  ];
+  return [];
 }
 
 export function planDistribution() {
-  return plans.map((p) => ({
-    name: p.name,
-    value: services.filter((s) => s.planId === p.id).length,
-  }));
+  return [];
 }
