@@ -108,7 +108,13 @@
       "Bash(git commit -m 'feat: implement complete support ticketing system UI *)",
       "Bash(git commit -m 'cleanup: remove mock users from UI *)",
       "Bash(git commit -m 'fix: load clients from backend in portal users section *)",
-      "Bash(git commit -m 'feat: add client user authentication support *)"
+      "Bash(git commit -m 'feat: add client user authentication support *)",
+      "Bash(pkill -f \"node.*backend\")",
+      "Bash(pkill -f \"node.*vite|tsc\")",
+      "Bash(curl -s http://localhost:4173/api/health)",
+      "Bash(curl -s http://localhost:4173/)",
+      "Bash(pkill -f \"node\")",
+      "Bash(git commit -m 'fix: resolve client login and portal rendering errors *)"
     ]
   }
 }

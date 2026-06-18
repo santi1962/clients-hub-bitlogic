@@ -109,7 +109,7 @@ function PortalContent({ user, isDemoMode }: { user: AuthUser; isDemoMode: boole
 
   // Usar clientId real del usuario
   const clientId = user.clientId;
-  const { data: client } = useClient(clientId);
+  const { data: client, isLoading: clientLoading } = useClient(clientId);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -128,11 +128,11 @@ function PortalContent({ user, isDemoMode }: { user: AuthUser; isDemoMode: boole
           </div>
           <div className="flex items-center gap-3">
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-medium">{client.company}</p>
-              <p className="text-xs text-muted-foreground">{client.email}</p>
+              <p className="text-sm font-medium">{client?.company || (clientLoading ? "..." : "—")}</p>
+              <p className="text-xs text-muted-foreground">{client?.email || (clientLoading ? "..." : "—")}</p>
             </div>
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/20 text-accent text-sm font-semibold">
-              {client.company.slice(0, 2).toUpperCase()}
+              {client?.company ? client.company.slice(0, 2).toUpperCase() : "?"}
             </div>
           </div>
         </div>
