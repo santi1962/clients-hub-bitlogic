@@ -1,20 +1,19 @@
 import pool from "../db/pool.js";
-import { smartFixString } from "../utils/encoding.js";
 
 function formatClient(row) {
   return {
     id: row.id,
-    name: smartFixString(row.name),
-    company: smartFixString(row.company ?? ""),
+    name: row.name,
+    company: row.company ?? "",
     email: row.email,
     phone: row.phone ?? "",
     taxId: row.tax_id ?? null,
     status: row.status, // 'active' | 'inactive'
-    notes: smartFixString(row.notes ?? ""),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    notes: row.notes ?? "",
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
     servicesCount: parseInt(row.services_count ?? 0),
-    nextDueDate: row.next_due_date ?? null, // earliest active service due date
+    nextDueDate: row.next_due_date ? new Date(row.next_due_date).toISOString() : null,
   };
 }
 

@@ -99,7 +99,10 @@
       "Bash(xargs -r kill -9)",
       "Bash(pkill -9 -f \"node\")",
       "Bash(curl -s -X POST http://localhost:3003/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"admin@bitlogic.com.ar\",\"password\":\"Cambiar123!\"}')",
-      "Bash(curl -s -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJzdXBlcl9hZG1pbiIsImlhdCI6MTc4MTc5MTcwNiwiZXhwIjoxNzgxNzk1MzA2fQ.CaDcC3NNfi41fX4dHXuh5oWl2PtPNPnXwHif10sYF10' http://localhost:3003/api/clients?limit=1)"
+      "Bash(curl -s -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJzdXBlcl9hZG1pbiIsImlhdCI6MTc4MTc5MTcwNiwiZXhwIjoxNzgxNzk1MzA2fQ.CaDcC3NNfi41fX4dHXuh5oWl2PtPNPnXwHif10sYF10' http://localhost:3003/api/clients?limit=1)",
+      "Bash(git commit -m ' *)",
+      "Bash(curl -s -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJzdXBlcl9hZG1pbiIsImlhdCI6MTc4MTc5MjA4NiwiZXhwIjoxNzgxNzk1Njg2fQ.EmaaoPgz-EchrZNBba-k0OMBAj65L20Hn4EDwyw0dzw' http://localhost:3002/api/clients)",
+      "PowerShell(Stop-Process -Force)"
     ]
   }
 }
