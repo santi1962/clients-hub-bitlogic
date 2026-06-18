@@ -232,6 +232,19 @@ export function useChangeServicePlan() {
   });
 }
 
+export function useCreateService() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) => hostingApi.create(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["services"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      toast.success("Servicio creado correctamente");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al crear servicio"),
+  });
+}
+
 // ─────────────────────────────────────────────────────────────
 // PAYMENTS
 // ─────────────────────────────────────────────────────────────

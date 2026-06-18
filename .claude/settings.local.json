@@ -141,7 +141,9 @@
       "Bash(pkill -9 -f \"node.*frontend\")",
       "Bash(git commit -m 'feat: make company settings functional with API integration *)",
       "Bash(git commit -m 'feat: add complete settings API infrastructure *)",
-      "Bash(git commit -m 'feat: make all settings sections fully functional *)"
+      "Bash(git commit -m 'feat: make all settings sections fully functional *)",
+      "Bash(findstr \"3000\\\\|3002\")",
+      "PowerShell(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -eq 'node' } | Stop-Process -Force)"
     ],
     "additionalDirectories": [
       "\\tmp"

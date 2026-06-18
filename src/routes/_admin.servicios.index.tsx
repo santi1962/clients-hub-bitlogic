@@ -21,10 +21,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Eye, Search, Server, AlertTriangle } from "lucide-react";
 import { formatMoney, formatDate } from "@/lib/mock-data";
-import { useServices, usePlans } from "@/lib/queries";
+import { useServices, usePlans, useClients, useCreateService } from "@/lib/queries";
 
 export const Route = createFileRoute("/_admin/servicios/")({
   head: () => ({ meta: [{ title: "Servicios de hosting — Bitlogic" }] }),
@@ -35,10 +43,25 @@ function ServicesPage() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>("all");
   const [planId, setPlanId] = useState<string>("all");
+  const [dialogOpen, setDialogOpen] = useState(false);
 
-  // Planes para el filtro
+  // Formulario de nuevo servicio
+  const [formData, setFormData] = useState({
+    clientId: "",
+    domain: "",
+    planId: "",
+    monthlyPrice: "",
+    setupDate: new Date().toISOString().split("T")[0],
+    nextDueDate: "",
+    storageTotalGb: "5",
+    emailsTotal: "10",
+  });
+
+  // Datos para los dropdowns
   const { data: plansData } = usePlans();
+  const { data: clientsData } = useClients();
   const planList = plansData?.data ?? [];
+  const clientList = clientsData?.data ?? [];
 
   // Servicios con filtros aplicados en el backend
   const { data, isLoading, isError } = useServices({
@@ -50,6 +73,42 @@ function ServicesPage() {
   const services = data?.data ?? [];
   const total = data?.meta.total ?? 0;
 
+  // Mutation para crear servicio
+  const createServiceMutation = useCreateService();
+
+  const handleCreateService = async () => {
+    if (!formData.clientId || !formData.domain || !formData.planId || !formData.monthlyPrice) {
+      alert("Por favor completa cliente, dominio, plan y precio");
+      return;
+    }
+
+    try {
+      await createServiceMutation.mutateAsync({
+        clientId: formData.clientId,
+        domain: formData.domain,
+        planId: formData.planId,
+        monthlyPrice: parseFloat(formData.monthlyPrice),
+        setupDate: formData.setupDate,
+        nextDueDate: formData.nextDueDate,
+        storageTotalGb: parseInt(formData.storageTotalGb) || 5,
+        emailsTotal: parseInt(formData.emailsTotal) || 10,
+      });
+      setDialogOpen(false);
+      setFormData({
+        clientId: "",
+        domain: "",
+        planId: "",
+        monthlyPrice: "",
+        setupDate: new Date().toISOString().split("T")[0],
+        nextDueDate: "",
+        storageTotalGb: "5",
+        emailsTotal: "10",
+      });
+    } catch (error) {
+      console.error("Error:", error);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -59,7 +118,7 @@ function ServicesPage() {
             {isLoading ? "Cargando…" : `${total} servicios en total`}
           </p>
         </div>
-        <Button>
+        <Button onClick={() => setDialogOpen(true)}>
           <Plus className="h-4 w-4" /> Nuevo servicio
         </Button>
       </div>
@@ -178,6 +237,124 @@ function ServicesPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Nuevo Servicio</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label>Cliente</Label>
+              <Select
+                value={formData.clientId}
+                onValueChange={(val) => setFormData({ ...formData, clientId: val })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona cliente" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clientList.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.companyName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Dominio</Label>
+              <Input
+                value={formData.domain}
+                onChange={(e) => setFormData({ ...formData, domain: e.target.value })}
+                placeholder="ejemplo.com"
+              />
+            </div>
+
+            <div>
+              <Label>Plan</Label>
+              <Select
+                value={formData.planId}
+                onValueChange={(val) => setFormData({ ...formData, planId: val })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona plan" />
+                </SelectTrigger>
+                <SelectContent>
+                  {planList.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label>Precio mensual ($)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={formData.monthlyPrice}
+                  onChange={(e) => setFormData({ ...formData, monthlyPrice: e.target.value })}
+                  placeholder="0.00"
+                />
+              </div>
+              <div>
+                <Label>Almacenamiento (GB)</Label>
+                <Input
+                  type="number"
+                  value={formData.storageTotalGb}
+                  onChange={(e) => setFormData({ ...formData, storageTotalGb: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label>Cuentas email</Label>
+                <Input
+                  type="number"
+                  value={formData.emailsTotal}
+                  onChange={(e) => setFormData({ ...formData, emailsTotal: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label>Próximo vencimiento</Label>
+                <Input
+                  type="date"
+                  value={formData.nextDueDate}
+                  onChange={(e) => setFormData({ ...formData, nextDueDate: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label>Fecha de alta</Label>
+              <Input
+                type="date"
+                value={formData.setupDate}
+                onChange={(e) => setFormData({ ...formData, setupDate: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleCreateService}
+              disabled={createServiceMutation.isPending}
+            >
+              {createServiceMutation.isPending ? "Creando..." : "Crear"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
