@@ -118,7 +118,17 @@
       "Bash(netstat -tuln)",
       "Bash(curl -I http://localhost:4173)",
       "Bash(pkill -9 -f \"node.*backend\")",
-      "Bash(git commit -m 'fix: add missing auth refresh and logout endpoints *)"
+      "Bash(git commit -m 'fix: add missing auth refresh and logout endpoints *)",
+      "Bash(pkill -9 -f \"node|vite|preview\")",
+      "Bash(rm -rf dist)",
+      "Bash(curl -s http://localhost:4173/assets/)",
+      "Bash(pkill -9 -f \"node|vite\")",
+      "Bash(curl -s http://localhost:5173/)",
+      "Bash(curl -s http://localhost:8080/)",
+      "Bash(psql postgresql://postgres:Waltdisney142!@localhost:5432/bitlogic -c \"SELECT id, email, name, role, client_id, status FROM users WHERE email = 'logistica@fbtoolsherramientas.com';\")",
+      "Bash(npm exec -- node -e ' *)",
+      "Bash(curl -X POST http://localhost:3002/api/temp/create-service)",
+      "Bash(git commit -m 'chore: revert mock data creation, keep system clean *)"
     ]
   }
 }
