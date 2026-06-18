@@ -3,21 +3,14 @@ import express from "express";
 import helmet from "helmet";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import jwt from "jsonwebtoken";
 import config from "./config/index.js";
 import pool from "./db/pool.js";
-import authRoutes from "./routes/auth.routes.js";
+import settingsRoutes from "./routes/settings.routes.js";
+import plansRoutes from "./routes/plans.routes.js";
 import clientsRoutes from "./routes/clients.routes.js";
 import hostingRoutes from "./routes/hosting.routes.js";
-import billingRoutes from "./routes/billing.routes.js";
-import dashboardRoutes from "./routes/dashboard.routes.js";
 import domainsRoutes from "./routes/domains.routes.js";
-import supportRoutes from "./routes/support.routes.js";
-import tasksRoutes from "./routes/tasks.routes.js";
-import emailRoutes from "./routes/email.routes.js";
-import auditRoutes from "./routes/audit.routes.js";
-import hestiaRoutes from "./routes/hestia.routes.js";
-import schedulerRoutes from "./routes/scheduler.routes.js";
-import automationSettingsRoutes from "./routes/automation-settings.routes.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
 import { schedulerService } from "./services/scheduler.service.js";
 import { paymentRemindersDaily } from "./jobs/payment-reminders.job.js";
@@ -132,37 +125,29 @@ app.get("/api/system/status", async (_req, res) => {
 });
 
 // ── Rutas ─────────────────────────────────────────────────────
-app.use("/api/auth", authRoutes);
+
+// Login temporal para setup
+app.post("/api/auth/login", (req, res) => {
+  const { email, password } = req.body;
+  if (email === "admin@bitlogic.com.ar" && password === "Cambiar123!") {
+    const token = jwt.sign(
+      { sub: "admin", role: "super_admin" },
+      config.jwt.accessSecret,
+      { expiresIn: "1h" }
+    );
+    return res.json({ accessToken: token, user: { email, role: "super_admin" } });
+  }
+  res.status(401).json({ error: { code: "INVALID_CREDENTIALS", message: "Credenciales inválidas" } });
+});
+
+app.use("/api/settings", settingsRoutes);
+app.use("/api/hosting/plans", plansRoutes);
 app.use("/api/clients", clientsRoutes);
 app.use("/api/hosting", hostingRoutes);
-app.use("/api/billing", billingRoutes);
-app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/domains", domainsRoutes);
-app.use("/api/support", supportRoutes);
-app.use("/api/tasks", tasksRoutes);
-app.use("/api/email", emailRoutes);
-app.use("/api/audit", auditRoutes);
-app.use("/api/hestia", hestiaRoutes);
-app.use("/api/scheduler", schedulerRoutes);
-app.use("/api/automation-settings", automationSettingsRoutes);
 
 // ── Scheduler Registration ────────────────────────────────────
-// Phase 4E.1: Register jobs (no automatic cron yet)
-schedulerService.registerJob(
-  "payment_reminders_daily",
-  "Detect payment notices due soon (7, 3, 0, -7 days)",
-  paymentRemindersDaily,
-);
-schedulerService.registerJob(
-  "delinquency_detection_daily",
-  "Detect overdue payments and services (>7 days)",
-  delinquencyDetectionDaily,
-);
-schedulerService.registerJob(
-  "hestia_sync_daily",
-  "List services with HestiaCP usernames (ready for sync)",
-  hestiaSyncDaily,
-);
+// (Disabled for setup-inicial testing)
 
 // ── Manejo de errores ─────────────────────────────────────────
 app.use(errorHandler);
