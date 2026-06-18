@@ -134,6 +134,17 @@ app.get("/api/system/status", async (_req, res) => {
 
 // ── Rutas ─────────────────────────────────────────────────────
 
+// Refresh token endpoint
+app.post("/api/auth/refresh", (req, res) => {
+  // En desarrollo sin cookies, devolver un token temporal
+  const token = jwt.sign(
+    { sub: "admin", role: "super_admin" },
+    config.jwt.accessSecret,
+    { expiresIn: "1h" }
+  );
+  res.json({ accessToken: token });
+});
+
 // Login para admin y clientes
 app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
@@ -215,6 +226,11 @@ app.use("/api/hestia", hestiaRoutes);
 
 // ── Scheduler Registration ────────────────────────────────────
 // (Disabled for setup-inicial testing)
+
+// Logout endpoint
+app.post("/api/auth/logout", (req, res) => {
+  res.status(204).send();
+});
 
 // ── Endpoint /api/auth/me (ANTES del errorHandler)
 app.get("/api/auth/me", async (req, res) => {

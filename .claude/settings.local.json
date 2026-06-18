@@ -114,7 +114,11 @@
       "Bash(curl -s http://localhost:4173/api/health)",
       "Bash(curl -s http://localhost:4173/)",
       "Bash(pkill -f \"node\")",
-      "Bash(git commit -m 'fix: resolve client login and portal rendering errors *)"
+      "Bash(git commit -m 'fix: resolve client login and portal rendering errors *)",
+      "Bash(netstat -tuln)",
+      "Bash(curl -I http://localhost:4173)",
+      "Bash(pkill -9 -f \"node.*backend\")",
+      "Bash(git commit -m 'fix: add missing auth refresh and logout endpoints *)"
     ]
   }
 }
