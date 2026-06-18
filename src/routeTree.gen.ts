@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SetupInicialRouteImport } from './routes/setup-inicial'
 import { Route as RecuperarRouteImport } from './routes/recuperar'
 import { Route as PortalRouteImport } from './routes/portal'
 import { Route as LoginRouteImport } from './routes/login'
@@ -52,6 +53,11 @@ import { Route as AdminServiciosIdRouteImport } from './routes/_admin.servicios.
 import { Route as AdminDominiosIdRouteImport } from './routes/_admin.dominios.$id'
 import { Route as AdminClientesIdRouteImport } from './routes/_admin.clientes.$id'
 
+const SetupInicialRoute = SetupInicialRouteImport.update({
+  id: '/setup-inicial',
+  path: '/setup-inicial',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RecuperarRoute = RecuperarRouteImport.update({
   id: '/recuperar',
   path: '/recuperar',
@@ -267,6 +273,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/portal': typeof PortalRouteWithChildren
   '/recuperar': typeof RecuperarRoute
+  '/setup-inicial': typeof SetupInicialRoute
   '/arquitectura': typeof AdminArquitecturaRoute
   '/auditoria': typeof AdminAuditoriaRoute
   '/automatizaciones': typeof AdminAutomatizacionesRoute
@@ -308,6 +315,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/recuperar': typeof RecuperarRoute
+  '/setup-inicial': typeof SetupInicialRoute
   '/arquitectura': typeof AdminArquitecturaRoute
   '/auditoria': typeof AdminAuditoriaRoute
   '/automatizaciones': typeof AdminAutomatizacionesRoute
@@ -353,6 +361,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/portal': typeof PortalRouteWithChildren
   '/recuperar': typeof RecuperarRoute
+  '/setup-inicial': typeof SetupInicialRoute
   '/_admin/arquitectura': typeof AdminArquitecturaRoute
   '/_admin/auditoria': typeof AdminAuditoriaRoute
   '/_admin/automatizaciones': typeof AdminAutomatizacionesRoute
@@ -399,6 +408,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/portal'
     | '/recuperar'
+    | '/setup-inicial'
     | '/arquitectura'
     | '/auditoria'
     | '/automatizaciones'
@@ -440,6 +450,7 @@ export interface FileRouteTypes {
   to:
     | '/login'
     | '/recuperar'
+    | '/setup-inicial'
     | '/arquitectura'
     | '/auditoria'
     | '/automatizaciones'
@@ -484,6 +495,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/portal'
     | '/recuperar'
+    | '/setup-inicial'
     | '/_admin/arquitectura'
     | '/_admin/auditoria'
     | '/_admin/automatizaciones'
@@ -529,10 +541,18 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   PortalRoute: typeof PortalRouteWithChildren
   RecuperarRoute: typeof RecuperarRoute
+  SetupInicialRoute: typeof SetupInicialRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/setup-inicial': {
+      id: '/setup-inicial'
+      path: '/setup-inicial'
+      fullPath: '/setup-inicial'
+      preLoaderRoute: typeof SetupInicialRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/recuperar': {
       id: '/recuperar'
       path: '/recuperar'
@@ -958,6 +978,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   PortalRoute: PortalRouteWithChildren,
   RecuperarRoute: RecuperarRoute,
+  SetupInicialRoute: SetupInicialRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

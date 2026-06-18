@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -X POST http://localhost:3001/api/auth/login -H 'Content-Type: application/json' -d '{\\\\\"email\\\\\":\\\\\"admin@bitlogic.com.ar\\\\\",\\\\\"password\\\\\":\\\\\"Cambiar123!\\\\\"}')",
+      "Bash(curl -s -H 'Authorization: Bearer __CMDSUB_OUTPUT__')",
+      "Bash(cat > *)",
+      "Bash(git commit -m ' *)"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
+    ]
+  }
+}

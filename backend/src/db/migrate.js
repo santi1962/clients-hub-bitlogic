@@ -18,6 +18,7 @@ const migrations = [
   "009_scheduler_logs_schema.sql",
   "010_automation_settings_schema.sql",
   "011_payment_reminder_logs_schema.sql",
+  "012_settings_schema.sql",
 ];
 
 console.log("Running migrations…");
