@@ -140,7 +140,8 @@
       "Bash(git commit -m 'feat: add domain creation dialog to dominios section *)",
       "Bash(pkill -9 -f \"node.*frontend\")",
       "Bash(git commit -m 'feat: make company settings functional with API integration *)",
-      "Bash(git commit -m 'feat: add complete settings API infrastructure *)"
+      "Bash(git commit -m 'feat: add complete settings API infrastructure *)",
+      "Bash(git commit -m 'feat: make all settings sections fully functional *)"
     ],
     "additionalDirectories": [
       "\\tmp"

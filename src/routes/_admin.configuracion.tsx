@@ -1,12 +1,3 @@
-// ============================================================
-// MÓDULO CONFIGURACIÓN
-// ------------------------------------------------------------
-// Conexión futura:
-//   GET  /api/settings           → carga consolidada
-//   PATCH /api/settings/:section → guarda parcial
-//   Cifrar credenciales (SMTP, APIs de pago) en backend.
-// ============================================================
-
 import { createFileRoute } from "@tanstack/react-router";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -15,34 +6,36 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/breadcrumbs";
 import { Building2, FileText, Server, Wallet, Mail, MessageCircle, Save, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { emailApi, hestiaApi } from "@/lib/api-client";
-import { useCompanySettings, useUpdateCompanySettings } from "@/lib/queries";
+import {
+  useCompanySettings,
+  useUpdateCompanySettings,
+  useBillingSettings,
+  useUpdateBillingSettings,
+  useHostingSettings,
+  useUpdateHostingSettings,
+  usePaymentSettings,
+  useUpdatePaymentSettings,
+  useEmailSettings,
+  useUpdateEmailSettings,
+  useWhatsappSettings,
+  useUpdateWhatsappSettings,
+} from "@/lib/queries";
 
 export const Route = createFileRoute("/_admin/configuracion")({
   head: () => ({ meta: [{ title: "Configuración — Bitlogic" }] }),
   component: SettingsPage,
 });
 
-function save(label: string) {
-  toast.success(`${label} guardado correctamente`);
-}
-
 async function testEmailConfig() {
   const email = prompt("Ingresa un email para probar:");
   if (!email) return;
-
   try {
     await emailApi.test(email);
     toast.success("Email de prueba enviado correctamente");
@@ -65,20 +58,96 @@ async function testHestiaConnection() {
 }
 
 function SettingsPage() {
-  const { data: settings } = useCompanySettings();
-  const updateMutation = useUpdateCompanySettings();
-
-  const [formData, setFormData] = useState({
-    companyName: settings?.companyName || "",
-    contactEmail: settings?.contactEmail || "",
-    phone: settings?.phone || "",
-    taxId: settings?.taxId || "",
-    address: settings?.address || "",
+  // Company
+  const { data: companyData } = useCompanySettings();
+  const updateCompany = useUpdateCompanySettings();
+  const [company, setCompany] = useState({
+    companyName: "",
+    contactEmail: "",
+    phone: "",
+    taxId: "",
+    address: "",
   });
 
-  const handleSaveCompany = () => {
-    updateMutation.mutate(formData);
-  };
+  // Billing
+  const { data: billingData } = useBillingSettings();
+  const updateBilling = useUpdateBillingSettings();
+  const [billing, setBilling] = useState({
+    currency: "ARS",
+    defaultPaymentDays: 10,
+    invoicePrefix: "AV-2026-",
+    nextInvoiceNumber: 148,
+    invoiceLegalText: "",
+    bankData: "",
+  });
+
+  // Hosting
+  const { data: hostingData } = useHostingSettings();
+  const updateHosting = useUpdateHostingSettings();
+  const [hosting, setHosting] = useState({
+    hestiaUrl: "",
+    mainServer: "",
+    serverIp: "",
+    defaultQuotaGb: 5,
+    defaultEmails: 10,
+    spaceAlertsEnabled: true,
+  });
+
+  // Payments
+  const { data: paymentsData } = usePaymentSettings();
+  const updatePayments = useUpdatePaymentSettings();
+  const [payments, setPayments] = useState({
+    mercadoPagoEnabled: false,
+    paypalEnabled: false,
+    bankTransferEnabled: true,
+    manualPaymentEnabled: true,
+  });
+
+  // Email
+  const { data: emailData } = useEmailSettings();
+  const updateEmail = useUpdateEmailSettings();
+  const [email, setEmail] = useState({
+    smtpHost: "",
+    smtpPort: 587,
+    smtpUser: "",
+    smtpPassword: "",
+    fromName: "",
+    fromEmail: "",
+  });
+
+  // WhatsApp
+  const { data: whatsappData } = useWhatsappSettings();
+  const updateWhatsapp = useUpdateWhatsappSettings();
+  const [whatsapp, setWhatsapp] = useState({
+    contactNumber: "",
+    defaultMessage: "",
+    enabled: false,
+  });
+
+  // Load data into form when API responds
+  useEffect(() => {
+    if (companyData) setCompany(companyData);
+  }, [companyData]);
+
+  useEffect(() => {
+    if (billingData) setBilling(billingData);
+  }, [billingData]);
+
+  useEffect(() => {
+    if (hostingData) setHosting(hostingData);
+  }, [hostingData]);
+
+  useEffect(() => {
+    if (paymentsData) setPayments(paymentsData);
+  }, [paymentsData]);
+
+  useEffect(() => {
+    if (emailData) setEmail(emailData);
+  }, [emailData]);
+
+  useEffect(() => {
+    if (whatsappData) setWhatsapp(whatsappData);
+  }, [whatsappData]);
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -117,55 +186,46 @@ function SettingsPage() {
 
         {/* EMPRESA */}
         <TabsContent value="empresa">
-          <SectionCard
-            title="Datos de la empresa"
-            desc="Aparecen en avisos, emails y portal del cliente"
-          >
+          <SectionCard title="Datos de la empresa" desc="Aparecen en avisos, emails y portal del cliente">
             <Grid>
-              <CompanyField
+              <Field
                 label="Nombre comercial"
-                value={formData.companyName}
-                onChange={(v) => setFormData({...formData, companyName: v})}
+                value={company.companyName}
+                onChange={(v) => setCompany({ ...company, companyName: v })}
               />
-              <CompanyField
+              <Field
                 label="Email de contacto"
                 type="email"
-                value={formData.contactEmail}
-                onChange={(v) => setFormData({...formData, contactEmail: v})}
+                value={company.contactEmail}
+                onChange={(v) => setCompany({ ...company, contactEmail: v })}
               />
-              <CompanyField
+              <Field
                 label="Teléfono"
-                value={formData.phone}
-                onChange={(v) => setFormData({...formData, phone: v})}
+                value={company.phone}
+                onChange={(v) => setCompany({ ...company, phone: v })}
               />
-              <CompanyField
+              <Field
                 label="CUIT (opcional)"
-                value={formData.taxId}
-                onChange={(v) => setFormData({...formData, taxId: v})}
+                value={company.taxId}
+                onChange={(v) => setCompany({ ...company, taxId: v })}
               />
-              <CompanyField
+              <Field
                 label="Dirección"
-                value={formData.address}
-                onChange={(v) => setFormData({...formData, address: v})}
+                value={company.address}
+                onChange={(v) => setCompany({ ...company, address: v })}
                 wide
               />
               <div className="md:col-span-2 space-y-1.5">
                 <Label>Logo</Label>
                 <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
-                    B
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => toast.info("Subir logo (placeholder)")}
-                  >
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">B</div>
+                  <Button variant="outline" size="sm" onClick={() => toast.info("Subir logo (placeholder)")}>
                     Cambiar logo
                   </Button>
                 </div>
               </div>
             </Grid>
-            <SaveBar onSave={handleSaveCompany} isLoading={updateMutation.isPending} />
+            <SaveBar onSave={() => updateCompany.mutate(company)} isLoading={updateCompany.isPending} />
           </SectionCard>
         </TabsContent>
 
@@ -175,7 +235,7 @@ function SettingsPage() {
             <Grid>
               <div className="space-y-1.5">
                 <Label>Moneda</Label>
-                <Select defaultValue="ARS">
+                <Select value={billing.currency} onValueChange={(v) => setBilling({ ...billing, currency: v })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -186,27 +246,41 @@ function SettingsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Field label="Días de vencimiento por defecto" type="number" defaultValue="10" />
-              <Field label="Prefijo numeración" defaultValue="AV-2026-" />
-              <Field label="Próximo número" type="number" defaultValue="00148" />
+              <Field
+                label="Días de vencimiento por defecto"
+                type="number"
+                value={billing.defaultPaymentDays.toString()}
+                onChange={(v) => setBilling({ ...billing, defaultPaymentDays: parseInt(v) || 0 })}
+              />
+              <Field
+                label="Prefijo numeración"
+                value={billing.invoicePrefix}
+                onChange={(v) => setBilling({ ...billing, invoicePrefix: v })}
+              />
+              <Field
+                label="Próximo número"
+                type="number"
+                value={billing.nextInvoiceNumber.toString()}
+                onChange={(v) => setBilling({ ...billing, nextInvoiceNumber: parseInt(v) || 0 })}
+              />
               <div className="md:col-span-2 space-y-1.5">
                 <Label>Texto legal del aviso de pago</Label>
                 <Textarea
                   rows={3}
-                  defaultValue="Este aviso no constituye factura. La factura electrónica será emitida una vez acreditado el pago."
+                  value={billing.invoiceLegalText}
+                  onChange={(e) => setBilling({ ...billing, invoiceLegalText: e.target.value })}
                 />
               </div>
               <div className="md:col-span-2 space-y-1.5">
                 <Label>Datos para transferencia bancaria</Label>
                 <Textarea
                   rows={4}
-                  defaultValue={
-                    "Banco Galicia\nCBU: 0070123456789012345678\nAlias: BITLOGIC.HOSTING\nTitular: Bitlogic S.R.L. — CUIT 30-71234567-8"
-                  }
+                  value={billing.bankData}
+                  onChange={(e) => setBilling({ ...billing, bankData: e.target.value })}
                 />
               </div>
             </Grid>
-            <SaveBar onSave={() => save("Configuración de facturación")} />
+            <SaveBar onSave={() => updateBilling.mutate(billing)} isLoading={updateBilling.isPending} />
           </SectionCard>
         </TabsContent>
 
@@ -216,33 +290,49 @@ function SettingsPage() {
             <Grid>
               <Field
                 label="URL panel Hestia"
-                defaultValue="https://srv01.bitlogic.com.ar:8083"
+                value={hosting.hestiaUrl}
+                onChange={(v) => setHosting({ ...hosting, hestiaUrl: v })}
                 wide
               />
-              <Field label="Servidor principal" defaultValue="srv01.bitlogic.com.ar" />
-              <Field label="IP servidor" defaultValue="200.45.12.34" />
-              <Field label="Cuota por defecto (GB)" type="number" defaultValue="5" />
-              <Field label="Cuentas email por defecto" type="number" defaultValue="10" />
+              <Field
+                label="Servidor principal"
+                value={hosting.mainServer}
+                onChange={(v) => setHosting({ ...hosting, mainServer: v })}
+              />
+              <Field
+                label="IP servidor"
+                value={hosting.serverIp}
+                onChange={(v) => setHosting({ ...hosting, serverIp: v })}
+              />
+              <Field
+                label="Cuota por defecto (GB)"
+                type="number"
+                value={hosting.defaultQuotaGb.toString()}
+                onChange={(v) => setHosting({ ...hosting, defaultQuotaGb: parseInt(v) || 0 })}
+              />
+              <Field
+                label="Cuentas email por defecto"
+                type="number"
+                value={hosting.defaultEmails.toString()}
+                onChange={(v) => setHosting({ ...hosting, defaultEmails: parseInt(v) || 0 })}
+              />
               <div className="md:col-span-2 flex items-center justify-between rounded-lg border border-border/60 p-3">
                 <div>
                   <p className="text-sm font-medium">Alertas de espacio</p>
-                  <p className="text-xs text-muted-foreground">
-                    Avisar cuando un servicio supere el 80% de su cuota
-                  </p>
+                  <p className="text-xs text-muted-foreground">Avisar cuando un servicio supere el 80% de su cuota</p>
                 </div>
-                <Switch defaultChecked />
+                <Switch
+                  checked={hosting.spaceAlertsEnabled}
+                  onCheckedChange={(v) => setHosting({ ...hosting, spaceAlertsEnabled: v })}
+                />
               </div>
             </Grid>
             <div className="flex gap-2 pt-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={testHestiaConnection}
-              >
+              <Button variant="outline" size="sm" onClick={testHestiaConnection}>
                 Probar conexión HestiaCP
               </Button>
             </div>
-            <SaveBar onSave={() => save("Configuración de hosting")} />
+            <SaveBar onSave={() => updateHosting.mutate(hosting)} isLoading={updateHosting.isPending} />
           </SectionCard>
         </TabsContent>
 
@@ -250,27 +340,48 @@ function SettingsPage() {
         <TabsContent value="pagos">
           <SectionCard title="Métodos de pago">
             <div className="space-y-3">
-              <ProviderRow
-                name="MercadoPago"
-                desc="Cobros con tarjeta, débito y dinero en cuenta"
-                status="placeholder"
-              />
-              <ProviderRow
-                name="PayPal"
-                desc="Cobros internacionales en USD"
-                status="placeholder"
-              />
-              <ProviderRow
-                name="Transferencia bancaria"
-                desc="Conciliación manual desde Cobranza"
-                status="active"
-              />
-              <ProviderRow
-                name="Efectivo / Manual"
-                desc="Registro manual de pagos"
-                status="active"
-              />
+              <div className="flex items-center justify-between rounded-lg border border-border/60 p-3">
+                <div>
+                  <p className="text-sm font-medium">MercadoPago</p>
+                  <p className="text-xs text-muted-foreground">Cobros con tarjeta, débito y dinero en cuenta</p>
+                </div>
+                <Switch
+                  checked={payments.mercadoPagoEnabled}
+                  onCheckedChange={(v) => setPayments({ ...payments, mercadoPagoEnabled: v })}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border/60 p-3">
+                <div>
+                  <p className="text-sm font-medium">PayPal</p>
+                  <p className="text-xs text-muted-foreground">Cobros internacionales en USD</p>
+                </div>
+                <Switch
+                  checked={payments.paypalEnabled}
+                  onCheckedChange={(v) => setPayments({ ...payments, paypalEnabled: v })}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border/60 p-3">
+                <div>
+                  <p className="text-sm font-medium">Transferencia bancaria</p>
+                  <p className="text-xs text-muted-foreground">Conciliación manual desde Cobranza</p>
+                </div>
+                <Switch
+                  checked={payments.bankTransferEnabled}
+                  onCheckedChange={(v) => setPayments({ ...payments, bankTransferEnabled: v })}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border/60 p-3">
+                <div>
+                  <p className="text-sm font-medium">Efectivo / Manual</p>
+                  <p className="text-xs text-muted-foreground">Registro manual de pagos</p>
+                </div>
+                <Switch
+                  checked={payments.manualPaymentEnabled}
+                  onCheckedChange={(v) => setPayments({ ...payments, manualPaymentEnabled: v })}
+                />
+              </div>
             </div>
+            <SaveBar onSave={() => updatePayments.mutate(payments)} isLoading={updatePayments.isPending} />
           </SectionCard>
         </TabsContent>
 
@@ -278,59 +389,78 @@ function SettingsPage() {
         <TabsContent value="emails">
           <SectionCard title="Servidor SMTP">
             <Grid>
-              <Field label="SMTP host" defaultValue="smtp.bitlogic.com.ar" />
-              <Field label="SMTP port" type="number" defaultValue="587" />
-              <Field label="Usuario" defaultValue="no-reply@bitlogic.com.ar" />
-              <Field label="Contraseña" type="password" defaultValue="••••••••" />
               <Field
-                label="Remitente (From)"
-                defaultValue="Bitlogic <no-reply@bitlogic.com.ar>"
-                wide
+                label="SMTP host"
+                value={email.smtpHost}
+                onChange={(v) => setEmail({ ...email, smtpHost: v })}
+              />
+              <Field
+                label="SMTP port"
+                type="number"
+                value={email.smtpPort.toString()}
+                onChange={(v) => setEmail({ ...email, smtpPort: parseInt(v) || 587 })}
+              />
+              <Field
+                label="Usuario"
+                value={email.smtpUser}
+                onChange={(v) => setEmail({ ...email, smtpUser: v })}
+              />
+              <Field
+                label="Contraseña"
+                type="password"
+                value={email.smtpPassword}
+                onChange={(v) => setEmail({ ...email, smtpPassword: v })}
+              />
+              <Field
+                label="Remitente (Name)"
+                value={email.fromName}
+                onChange={(v) => setEmail({ ...email, fromName: v })}
+              />
+              <Field
+                label="Remitente (Email)"
+                type="email"
+                value={email.fromEmail}
+                onChange={(v) => setEmail({ ...email, fromEmail: v })}
               />
             </Grid>
             <div className="flex gap-2 pt-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={testEmailConfig}
-              >
+              <Button variant="outline" size="sm" onClick={testEmailConfig}>
                 Probar envío
               </Button>
             </div>
-            <SaveBar onSave={() => save("SMTP")} />
+            <SaveBar onSave={() => updateEmail.mutate(email)} isLoading={updateEmail.isPending} />
             <p className="text-xs text-muted-foreground pt-2">
-              Las plantillas se editan en{" "}
-              <a href="/plantillas" className="text-primary underline-offset-2 hover:underline">
-                Plantillas
-              </a>
-              .
+              Las plantillas se editan en <a href="/plantillas" className="text-primary underline-offset-2 hover:underline">Plantillas</a>.
             </p>
           </SectionCard>
         </TabsContent>
 
         {/* WHATSAPP */}
         <TabsContent value="whatsapp">
-          <SectionCard title="WhatsApp" desc="Integración futura con WhatsApp Business API">
+          <SectionCard title="WhatsApp">
             <Grid>
-              <Field label="Número de contacto" defaultValue="+54 9 11 5555 1234" />
+              <Field
+                label="Número de contacto"
+                value={whatsapp.contactNumber}
+                onChange={(v) => setWhatsapp({ ...whatsapp, contactNumber: v })}
+              />
               <div className="md:col-span-2 space-y-1.5">
                 <Label>Mensaje predeterminado</Label>
                 <Textarea
                   rows={3}
-                  defaultValue="Hola {cliente}, te recordamos que tu servicio {servicio} vence el {fecha}. Cualquier consulta estamos disponibles. — Bitlogic"
+                  value={whatsapp.defaultMessage}
+                  onChange={(e) => setWhatsapp({ ...whatsapp, defaultMessage: e.target.value })}
                 />
               </div>
               <div className="md:col-span-2 flex items-center justify-between rounded-lg border border-dashed border-border/60 p-3">
                 <div>
                   <p className="text-sm font-medium">Integración WhatsApp Business</p>
-                  <p className="text-xs text-muted-foreground">
-                    Próximamente — requiere cuenta verificada Meta
-                  </p>
+                  <p className="text-xs text-muted-foreground">Requiere cuenta verificada Meta</p>
                 </div>
-                <Badge variant="outline">Próximamente</Badge>
+                <Switch checked={whatsapp.enabled} onCheckedChange={(v) => setWhatsapp({ ...whatsapp, enabled: v })} />
               </div>
             </Grid>
-            <SaveBar onSave={() => save("Configuración WhatsApp")} />
+            <SaveBar onSave={() => updateWhatsapp.mutate(whatsapp)} isLoading={updateWhatsapp.isPending} />
           </SectionCard>
         </TabsContent>
       </Tabs>
@@ -338,15 +468,7 @@ function SettingsPage() {
   );
 }
 
-function SectionCard({
-  title,
-  desc,
-  children,
-}: {
-  title: string;
-  desc?: string;
-  children: React.ReactNode;
-}) {
+function SectionCard({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
   return (
     <Card className="border-border/60 mt-4">
       <CardHeader>
@@ -364,32 +486,13 @@ function Grid({ children }: { children: React.ReactNode }) {
 
 function Field({
   label,
-  defaultValue,
-  type = "text",
-  wide,
-}: {
-  label: string;
-  defaultValue?: string;
-  type?: string;
-  wide?: boolean;
-}) {
-  return (
-    <div className={"space-y-1.5 " + (wide ? "md:col-span-2" : "")}>
-      <Label>{label}</Label>
-      <Input type={type} defaultValue={defaultValue} />
-    </div>
-  );
-}
-
-function CompanyField({
-  label,
   value,
   onChange,
   type = "text",
   wide,
 }: {
   label: string;
-  value: string;
+  value: string | number;
   onChange: (v: string) => void;
   type?: string;
   wide?: boolean;
@@ -407,39 +510,8 @@ function SaveBar({ onSave, isLoading }: { onSave: () => void; isLoading?: boolea
     <div className="flex justify-end pt-2 border-t border-border/40">
       <Button size="sm" onClick={onSave} disabled={isLoading}>
         {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-        Guardar cambios
+        Guardar
       </Button>
-    </div>
-  );
-}
-
-function ProviderRow({
-  name,
-  desc,
-  status,
-}: {
-  name: string;
-  desc: string;
-  status: "active" | "placeholder";
-}) {
-  return (
-    <div className="flex items-center justify-between rounded-lg border border-border/60 p-3">
-      <div>
-        <p className="text-sm font-medium">{name}</p>
-        <p className="text-xs text-muted-foreground">{desc}</p>
-      </div>
-      <div className="flex items-center gap-2">
-        <Badge variant={status === "active" ? "default" : "outline"} className="text-[10px]">
-          {status === "active" ? "Activo" : "Placeholder"}
-        </Badge>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => toast.info(`Configurar ${name} — próximamente`)}
-        >
-          Configurar
-        </Button>
-      </div>
     </div>
   );
 }
