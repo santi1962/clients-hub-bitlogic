@@ -70,6 +70,15 @@ export async function updateService(req, res, next) {
   }
 }
 
+export async function deleteService(req, res, next) {
+  try {
+    await hostingService.deleteService(req.params.id);
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function suspendService(req, res, next) {
   try {
     res.json(await hostingService.suspendService(req.params.id));

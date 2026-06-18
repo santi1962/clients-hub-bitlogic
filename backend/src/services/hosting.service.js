@@ -310,6 +310,17 @@ export async function updateService(id, data) {
   return getServiceById(id);
 }
 
+export async function deleteService(id) {
+  const { rows } = await pool.query(`DELETE FROM hosting_services WHERE id = $1 RETURNING id`, [
+    id,
+  ]);
+  if (!rows[0]) {
+    const e = new Error("Servicio no encontrado");
+    e.status = 404;
+    throw e;
+  }
+}
+
 export async function suspendService(id) {
   const { rows } = await pool.query(
     `UPDATE hosting_services SET status = 'suspended' WHERE id = $1 AND status != 'suspended' RETURNING id`,

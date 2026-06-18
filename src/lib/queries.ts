@@ -245,6 +245,19 @@ export function useCreateService() {
   });
 }
 
+export function useDeleteService() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => hostingApi.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["services"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      toast.success("Servicio eliminado correctamente");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al eliminar servicio"),
+  });
+}
+
 // ─────────────────────────────────────────────────────────────
 // PAYMENTS
 // ─────────────────────────────────────────────────────────────

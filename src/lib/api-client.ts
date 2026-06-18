@@ -299,6 +299,10 @@ export const hostingApi = {
     return mapService(raw);
   },
 
+  async delete(id: string): Promise<void> {
+    await request(`/hosting/services/${id}`, { method: "DELETE" });
+  },
+
   async suspend(id: string): Promise<ReturnType<typeof mapService>> {
     const raw = await request<BackendService>(`/hosting/services/${id}/suspend`, {
       method: "POST",

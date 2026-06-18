@@ -15,6 +15,7 @@ router.get("/services", authRequired, requireStaff, ctrl.listServices);
 router.post("/services", authRequired, requireAdmin, ctrl.createService);
 router.get("/services/:id", authRequired, requireStaff, ctrl.getService);
 router.patch("/services/:id", authRequired, requireAdmin, ctrl.updateService);
+router.delete("/services/:id", authRequired, requireAdmin, ctrl.deleteService);
 router.post("/services/:id/suspend", authRequired, requireAdmin, ctrl.suspendService);
 router.post("/services/:id/reactivate", authRequired, requireAdmin, ctrl.reactivateService);
 router.post("/services/:id/change-plan", authRequired, requireAdmin, ctrl.changePlan);

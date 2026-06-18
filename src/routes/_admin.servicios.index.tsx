@@ -30,9 +30,18 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Eye, Search, Server, AlertTriangle } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Plus, Eye, Search, Server, AlertTriangle, Trash2 } from "lucide-react";
 import { formatMoney, formatDate } from "@/lib/mock-data";
-import { useServices, usePlans, useClients, useCreateService } from "@/lib/queries";
+import { useServices, usePlans, useClients, useCreateService, useDeleteService } from "@/lib/queries";
 
 export const Route = createFileRoute("/_admin/servicios/")({
   head: () => ({ meta: [{ title: "Servicios de hosting — Bitlogic" }] }),
@@ -44,6 +53,8 @@ function ServicesPage() {
   const [status, setStatus] = useState<string>("all");
   const [planId, setPlanId] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [serviceToDelete, setServiceToDelete] = useState<string | null>(null);
 
   // Formulario de nuevo servicio
   const [formData, setFormData] = useState({
@@ -73,8 +84,20 @@ function ServicesPage() {
   const services = data?.data ?? [];
   const total = data?.meta.total ?? 0;
 
-  // Mutation para crear servicio
+  // Mutations para servicios
   const createServiceMutation = useCreateService();
+  const deleteServiceMutation = useDeleteService();
+
+  const handleDeleteService = async () => {
+    if (!serviceToDelete) return;
+    try {
+      await deleteServiceMutation.mutateAsync(serviceToDelete);
+      setDeleteDialogOpen(false);
+      setServiceToDelete(null);
+    } catch (error) {
+      console.error("Error:", error);
+    }
+  };
 
   const handlePlanChange = (selectedPlanId: string) => {
     const plan = planList.find((p) => p.id === selectedPlanId);
@@ -235,11 +258,21 @@ function ServicesPage() {
                       <TableCell>{formatDate(s.startDate)}</TableCell>
                       <TableCell>{formatDate(s.nextDueDate)}</TableCell>
                       <TableCell className="text-right">{formatMoney(s.monthlyPrice)}</TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right space-x-1">
                         <Button asChild size="sm" variant="ghost">
                           <Link to="/servicios/$id" params={{ id: s.id }}>
-                            <Eye className="h-4 w-4" /> Ver
+                            <Eye className="h-4 w-4" />
                           </Link>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setServiceToDelete(s.id);
+                            setDeleteDialogOpen(true);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -371,6 +404,27 @@ function ServicesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar Servicio</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Estás seguro de que deseas eliminar este servicio? Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex gap-3 justify-end">
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteService}
+              disabled={deleteServiceMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteServiceMutation.isPending ? "Eliminando..." : "Eliminar"}
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
