@@ -107,7 +107,8 @@
       "Bash(pkill -f \"npm run preview\")",
       "Bash(git commit -m 'feat: implement complete support ticketing system UI *)",
       "Bash(git commit -m 'cleanup: remove mock users from UI *)",
-      "Bash(git commit -m 'fix: load clients from backend in portal users section *)"
+      "Bash(git commit -m 'fix: load clients from backend in portal users section *)",
+      "Bash(git commit -m 'feat: add client user authentication support *)"
     ]
   }
 }

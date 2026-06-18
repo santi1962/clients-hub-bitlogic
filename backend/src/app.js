@@ -4,6 +4,7 @@ import helmet from "helmet";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
 import config from "./config/index.js";
 import pool from "./db/pool.js";
 import settingsRoutes from "./routes/settings.routes.js";
@@ -133,9 +134,11 @@ app.get("/api/system/status", async (_req, res) => {
 
 // ── Rutas ─────────────────────────────────────────────────────
 
-// Login temporal para setup
-app.post("/api/auth/login", (req, res) => {
+// Login para admin y clientes
+app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
+
+  // Admin hardcodeado
   if (email === "admin@bitlogic.com.ar" && password === "Cambiar123!") {
     const token = jwt.sign(
       { sub: "admin", role: "super_admin" },
@@ -155,7 +158,47 @@ app.post("/api/auth/login", (req, res) => {
       },
     });
   }
-  res.status(401).json({ error: { code: "INVALID_CREDENTIALS", message: "Credenciales inválidas" } });
+
+  // Buscar usuario en BD (clientes)
+  try {
+    const result = await pool.query(
+      "SELECT id, email, password_hash, name, role, status, client_id FROM users WHERE email = $1 AND status = 'active'",
+      [email]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: { code: "INVALID_CREDENTIALS", message: "Credenciales inválidas" } });
+    }
+
+    const user = result.rows[0];
+    const passwordMatch = await bcrypt.compare(password, user.password_hash);
+
+    if (!passwordMatch) {
+      return res.status(401).json({ error: { code: "INVALID_CREDENTIALS", message: "Credenciales inválidas" } });
+    }
+
+    const token = jwt.sign(
+      { sub: user.id, role: user.role, clientId: user.client_id },
+      config.jwt.accessSecret,
+      { expiresIn: "1h" }
+    );
+
+    res.json({
+      accessToken: token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        clientId: user.client_id,
+        phone: null,
+        lastLoginAt: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    console.error("Login error:", err);
+    res.status(500).json({ error: { code: "SERVER_ERROR", message: "Error en el servidor" } });
+  }
 });
 
 app.use("/api/settings", settingsRoutes);
