@@ -136,7 +136,8 @@
       "Bash(curl -s http://localhost:3002/api/dashboard/admin)",
       "Bash(curl -i http://localhost:3002/api/dashboard/admin)",
       "Bash(cat > *)",
-      "Bash(git commit -m 'cleanup: remove all hardcoded mock data from pages *)"
+      "Bash(git commit -m 'cleanup: remove all hardcoded mock data from pages *)",
+      "Bash(git commit -m 'feat: add domain creation dialog to dominios section *)"
     ],
     "additionalDirectories": [
       "\\tmp"

@@ -31,7 +31,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Plus, Search, AlertTriangle, Trash2, RotateCw, Mail } from "lucide-react";
 import { formatDate, formatMoney } from "@/lib/mock-data";
-import { useDomains, useDeleteDomain } from "@/lib/queries";
+import { useDomains, useDeleteDomain, useCreateDomain } from "@/lib/queries";
 import { useState } from "react";
 
 export const Route = createFileRoute("/_admin/dominios")({
@@ -51,6 +51,14 @@ function DominiosPage() {
     customerPrice: "0",
     autoRenew: false,
   });
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createData, setCreateData] = useState({
+    clientId: "",
+    domain: "",
+    expirationDate: "",
+    registrar: "default",
+    autoRenew: false,
+  });
 
   const { data, isLoading, isError } = useDomains({
     search: search || undefined,
@@ -59,6 +67,7 @@ function DominiosPage() {
   });
 
   const deleteMutation = useDeleteDomain();
+  const createMutation = useCreateDomain();
   const domains = data?.data ?? [];
 
   const handleViewDomain = (domain) => {
@@ -83,6 +92,9 @@ function DominiosPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Dominios</h1>
           <p className="text-sm text-muted-foreground">Gestiona todos los dominios registrados.</p>
         </div>
+        <Button onClick={() => setCreateOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" /> Agregar dominio
+        </Button>
       </div>
 
       {isError && (
@@ -237,6 +249,82 @@ function DominiosPage() {
             </Button>
             <Button onClick={() => setSelectedDomain(null)}>
               Guardar cambios
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para crear dominio */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Agregar nuevo dominio</DialogTitle>
+            <DialogDescription>Registra un nuevo dominio en el sistema</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Nombre del dominio</Label>
+              <Input
+                placeholder="ej: ejemplo.com"
+                value={createData.domain}
+                onChange={(e) => setCreateData({ ...createData, domain: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Fecha de vencimiento</Label>
+              <Input
+                type="date"
+                value={createData.expirationDate}
+                onChange={(e) => setCreateData({ ...createData, expirationDate: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Registrador</Label>
+              <Input
+                placeholder="ej: NIC, Donweb, etc"
+                value={createData.registrar}
+                onChange={(e) => setCreateData({ ...createData, registrar: e.target.value })}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="autoRenewCreate"
+                checked={createData.autoRenew}
+                onChange={(e) => setCreateData({ ...createData, autoRenew: e.target.checked })}
+                className="rounded border-border"
+              />
+              <Label htmlFor="autoRenewCreate" className="cursor-pointer">
+                Auto renovación activada
+              </Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                if (createData.domain && createData.expirationDate) {
+                  createMutation.mutate(
+                    {
+                      domain: createData.domain,
+                      expirationDate: createData.expirationDate,
+                      registrar: createData.registrar,
+                      autoRenew: createData.autoRenew,
+                    },
+                    {
+                      onSuccess: () => {
+                        setCreateOpen(false);
+                        setCreateData({ clientId: "", domain: "", expirationDate: "", registrar: "default", autoRenew: false });
+                      },
+                    }
+                  );
+                }
+              }}
+              disabled={createMutation.isPending || !createData.domain || !createData.expirationDate}
+            >
+              {createMutation.isPending ? "Agregando..." : "Agregar dominio"}
             </Button>
           </DialogFooter>
         </DialogContent>
