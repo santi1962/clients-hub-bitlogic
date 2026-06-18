@@ -865,8 +865,30 @@ export const hestiaApi = {
 // SETTINGS
 // ============================================================
 export const settingsApi = {
+  // Company
   getCompany: () => request("/settings/company"),
   updateCompany: (data: Record<string, any>) =>
     request("/settings/company", { method: "PUT", body: data }),
+  // Billing
+  getBilling: () => request("/settings/billing"),
+  updateBilling: (data: Record<string, any>) =>
+    request("/settings/billing", { method: "PUT", body: data }),
+  // Hosting
+  getHosting: () => request("/settings/hosting"),
+  updateHosting: (data: Record<string, any>) =>
+    request("/settings/hosting", { method: "PUT", body: data }),
+  // Payments
+  getPayments: () => request("/settings/payments"),
+  updatePayments: (data: Record<string, any>) =>
+    request("/settings/payments", { method: "PUT", body: data }),
+  // Email
+  getEmail: () => request("/settings/email"),
+  updateEmail: (data: Record<string, any>) =>
+    request("/settings/email", { method: "PUT", body: data }),
+  // WhatsApp
+  getWhatsapp: () => request("/settings/whatsapp"),
+  updateWhatsapp: (data: Record<string, any>) =>
+    request("/settings/whatsapp", { method: "PUT", body: data }),
+  // Readiness
   getReadiness: () => request("/settings/readiness"),
 };

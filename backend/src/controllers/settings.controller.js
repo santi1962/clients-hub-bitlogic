@@ -94,6 +94,132 @@ export async function updateCompanySettings(req, res, next) {
 }
 
 /**
+ * GET /api/settings/billing
+ * Obtiene la configuración de facturación
+ */
+export async function getBillingSettings(req, res) {
+  res.json({
+    currency: "ARS",
+    defaultPaymentDays: 10,
+    invoicePrefix: "AV-2026-",
+    nextInvoiceNumber: 148,
+    invoiceLegalText: "Este aviso no constituye factura. La factura electrónica será emitida una vez acreditado el pago.",
+    bankData: "Banco Galicia\nCBU: 0070123456789012345678\nAlias: BITLOGIC.HOSTING\nTitular: Bitlogic S.R.L.",
+  });
+}
+
+/**
+ * PUT /api/settings/billing
+ * Actualiza la configuración de facturación
+ */
+export async function updateBillingSettings(req, res) {
+  // Guardaría en base de datos
+  res.json({
+    ...req.body,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * GET /api/settings/hosting
+ * Obtiene la configuración de hosting
+ */
+export async function getHostingSettings(req, res) {
+  res.json({
+    hestiaUrl: "https://srv01.bitlogic.com.ar:8083",
+    mainServer: "srv01.bitlogic.com.ar",
+    serverIp: "200.45.12.34",
+    defaultQuotaGb: 5,
+    defaultEmails: 10,
+    spaceAlertsEnabled: true,
+  });
+}
+
+/**
+ * PUT /api/settings/hosting
+ * Actualiza la configuración de hosting
+ */
+export async function updateHostingSettings(req, res) {
+  res.json({
+    ...req.body,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * GET /api/settings/payments
+ * Obtiene la configuración de métodos de pago
+ */
+export async function getPaymentSettings(req, res) {
+  res.json({
+    mercadoPagoEnabled: false,
+    paypalEnabled: false,
+    bankTransferEnabled: true,
+    manualPaymentEnabled: true,
+  });
+}
+
+/**
+ * PUT /api/settings/payments
+ * Actualiza la configuración de pagos
+ */
+export async function updatePaymentSettings(req, res) {
+  res.json({
+    ...req.body,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * GET /api/settings/email
+ * Obtiene la configuración SMTP
+ */
+export async function getEmailSettings(req, res) {
+  res.json({
+    smtpHost: "smtp.bitlogic.com.ar",
+    smtpPort: 587,
+    smtpUser: "no-reply@bitlogic.com.ar",
+    smtpPassword: "", // Nunca devolvemos contraseña
+    fromName: "Bitlogic",
+    fromEmail: "no-reply@bitlogic.com.ar",
+  });
+}
+
+/**
+ * PUT /api/settings/email
+ * Actualiza la configuración SMTP
+ */
+export async function updateEmailSettings(req, res) {
+  res.json({
+    ...req.body,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * GET /api/settings/whatsapp
+ * Obtiene la configuración de WhatsApp
+ */
+export async function getWhatsappSettings(req, res) {
+  res.json({
+    contactNumber: "+54 9 11 5555 1234",
+    defaultMessage: "Hola {cliente}, te recordamos que tu servicio {servicio} vence el {fecha}. Cualquier consulta estamos disponibles. — Bitlogic",
+    enabled: false,
+  });
+}
+
+/**
+ * PUT /api/settings/whatsapp
+ * Actualiza la configuración de WhatsApp
+ */
+export async function updateWhatsappSettings(req, res) {
+  res.json({
+    ...req.body,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/**
  * GET /api/settings/readiness
  * Verifica si el sistema está listo para producción
  */

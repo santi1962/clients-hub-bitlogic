@@ -4,13 +4,31 @@ import { requireAuth } from "../middlewares/auth.js";
 
 const router = express.Router();
 
-// GET /api/settings/company
+// Company
 router.get("/company", requireAuth, settingsController.getCompanySettings);
-
-// PUT /api/settings/company
 router.put("/company", requireAuth, settingsController.updateCompanySettings);
 
-// GET /api/settings/readiness
+// Billing/Facturación
+router.get("/billing", requireAuth, settingsController.getBillingSettings);
+router.put("/billing", requireAuth, settingsController.updateBillingSettings);
+
+// Hosting/Hestia
+router.get("/hosting", requireAuth, settingsController.getHostingSettings);
+router.put("/hosting", requireAuth, settingsController.updateHostingSettings);
+
+// Payments/Pagos
+router.get("/payments", requireAuth, settingsController.getPaymentSettings);
+router.put("/payments", requireAuth, settingsController.updatePaymentSettings);
+
+// Email/SMTP
+router.get("/email", requireAuth, settingsController.getEmailSettings);
+router.put("/email", requireAuth, settingsController.updateEmailSettings);
+
+// WhatsApp
+router.get("/whatsapp", requireAuth, settingsController.getWhatsappSettings);
+router.put("/whatsapp", requireAuth, settingsController.updateWhatsappSettings);
+
+// Readiness
 router.get("/readiness", requireAuth, settingsController.getReadinessStatus);
 
 export default router;

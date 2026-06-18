@@ -643,6 +643,29 @@ export type { HostingServiceFull };
 // ─────────────────────────────────────────────────────────────
 import { settingsApi } from "./api-client";
 
+const createSettingsHooks = (section: string) => {
+  const useGet = () =>
+    useQuery({
+      queryKey: ["settings", section],
+      queryFn: () => settingsApi[`get${section.charAt(0).toUpperCase()}${section.slice(1)}`](),
+    });
+
+  const useUpdate = () => {
+    const qc = useQueryClient();
+    return useMutation({
+      mutationFn: (data: Record<string, any>) =>
+        settingsApi[`update${section.charAt(0).toUpperCase()}${section.slice(1)}`](data),
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ["settings", section] });
+        toast.success("Configuración guardada");
+      },
+      onError: (err: Error) => toast.error(err.message ?? "Error al guardar"),
+    });
+  };
+
+  return { useGet, useUpdate };
+};
+
 export function useCompanySettings() {
   return useQuery({
     queryKey: ["settings", "company"],
@@ -658,6 +681,101 @@ export function useUpdateCompanySettings() {
       qc.invalidateQueries({ queryKey: ["settings", "company"] });
       toast.success("Configuración guardada");
     },
-    onError: (err: Error) => toast.error(err.message ?? "Error al guardar configuración"),
+    onError: (err: Error) => toast.error(err.message ?? "Error al guardar"),
+  });
+}
+
+export function useBillingSettings() {
+  return useQuery({
+    queryKey: ["settings", "billing"],
+    queryFn: () => settingsApi.getBilling(),
+  });
+}
+
+export function useUpdateBillingSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, any>) => settingsApi.updateBilling(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings", "billing"] });
+      toast.success("Configuración guardada");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al guardar"),
+  });
+}
+
+export function useHostingSettings() {
+  return useQuery({
+    queryKey: ["settings", "hosting"],
+    queryFn: () => settingsApi.getHosting(),
+  });
+}
+
+export function useUpdateHostingSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, any>) => settingsApi.updateHosting(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings", "hosting"] });
+      toast.success("Configuración guardada");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al guardar"),
+  });
+}
+
+export function usePaymentSettings() {
+  return useQuery({
+    queryKey: ["settings", "payments"],
+    queryFn: () => settingsApi.getPayments(),
+  });
+}
+
+export function useUpdatePaymentSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, any>) => settingsApi.updatePayments(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings", "payments"] });
+      toast.success("Configuración guardada");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al guardar"),
+  });
+}
+
+export function useEmailSettings() {
+  return useQuery({
+    queryKey: ["settings", "email"],
+    queryFn: () => settingsApi.getEmail(),
+  });
+}
+
+export function useUpdateEmailSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, any>) => settingsApi.updateEmail(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings", "email"] });
+      toast.success("Configuración guardada");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al guardar"),
+  });
+}
+
+export function useWhatsappSettings() {
+  return useQuery({
+    queryKey: ["settings", "whatsapp"],
+    queryFn: () => settingsApi.getWhatsapp(),
+  });
+}
+
+export function useUpdateWhatsappSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, any>) => settingsApi.updateWhatsapp(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings", "whatsapp"] });
+      toast.success("Configuración guardada");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al guardar"),
   });
 }
