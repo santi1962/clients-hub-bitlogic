@@ -1,15 +1,16 @@
 import pool from "../db/pool.js";
+import { smartFixString } from "../utils/encoding.js";
 
 function formatClient(row) {
   return {
     id: row.id,
-    name: row.name,
-    company: row.company ?? "",
+    name: smartFixString(row.name),
+    company: smartFixString(row.company ?? ""),
     email: row.email,
     phone: row.phone ?? "",
     taxId: row.tax_id ?? null,
     status: row.status, // 'active' | 'inactive'
-    notes: row.notes ?? "",
+    notes: smartFixString(row.notes ?? ""),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     servicesCount: parseInt(row.services_count ?? 0),

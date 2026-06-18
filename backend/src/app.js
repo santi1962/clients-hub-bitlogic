@@ -11,6 +11,12 @@ import plansRoutes from "./routes/plans.routes.js";
 import clientsRoutes from "./routes/clients.routes.js";
 import hostingRoutes from "./routes/hosting.routes.js";
 import domainsRoutes from "./routes/domains.routes.js";
+import dashboardRoutes from "./routes/dashboard.routes.js";
+import billingRoutes from "./routes/billing.routes.js";
+import supportRoutes from "./routes/support.routes.js";
+import tasksRoutes from "./routes/tasks.routes.js";
+import emailRoutes from "./routes/email.routes.js";
+import hestiaRoutes from "./routes/hestia.routes.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
 import { schedulerService } from "./services/scheduler.service.js";
 import { paymentRemindersDaily } from "./jobs/payment-reminders.job.js";
@@ -26,6 +32,7 @@ app.use(cors({ origin: config.cors.origin, credentials: true }));
 // ── Parsers ───────────────────────────────────────────────────
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
+
 
 // ── Health check ──────────────────────────────────────────────
 app.get("/api/health", async (_req, res) => {
@@ -135,7 +142,18 @@ app.post("/api/auth/login", (req, res) => {
       config.jwt.accessSecret,
       { expiresIn: "1h" }
     );
-    return res.json({ accessToken: token, user: { email, role: "super_admin" } });
+    return res.json({
+      accessToken: token,
+      user: {
+        id: "admin",
+        name: "Admin Bitlogic",
+        email: "admin@bitlogic.com.ar",
+        role: "super_admin",
+        phone: null,
+        clientId: null,
+        lastLoginAt: new Date().toISOString(),
+      },
+    });
   }
   res.status(401).json({ error: { code: "INVALID_CREDENTIALS", message: "Credenciales inválidas" } });
 });
@@ -145,9 +163,38 @@ app.use("/api/hosting/plans", plansRoutes);
 app.use("/api/clients", clientsRoutes);
 app.use("/api/hosting", hostingRoutes);
 app.use("/api/domains", domainsRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/billing", billingRoutes);
+app.use("/api/support", supportRoutes);
+app.use("/api/tasks", tasksRoutes);
+app.use("/api/email", emailRoutes);
+app.use("/api/hestia", hestiaRoutes);
 
 // ── Scheduler Registration ────────────────────────────────────
 // (Disabled for setup-inicial testing)
+
+// ── Endpoint /api/auth/me (ANTES del errorHandler)
+app.get("/api/auth/me", (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    return res.status(401).json({ error: { code: "NO_AUTH", message: "Token requerido" } });
+  }
+  const token = authHeader.slice(7);
+  try {
+    const decoded = jwt.verify(token, config.jwt.accessSecret);
+    res.json({
+      id: decoded.sub || "admin",
+      name: "Admin Bitlogic",
+      email: "admin@bitlogic.com.ar",
+      role: decoded.role || "super_admin",
+      phone: null,
+      clientId: null,
+      lastLoginAt: new Date().toISOString(),
+    });
+  } catch {
+    res.status(401).json({ error: { code: "INVALID_TOKEN", message: "Token inválido o expirado" } });
+  }
+});
 
 // ── Manejo de errores ─────────────────────────────────────────
 app.use(errorHandler);

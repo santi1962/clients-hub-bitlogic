@@ -621,8 +621,14 @@ function parseLocalDate(d: string): Date {
   return new Date(y, (m ?? 1) - 1, day ?? 1);
 }
 
-export function formatMoney(n: number) {
-  return "USD " + new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
+export function formatMoney(n: number, currency = "ARS") {
+  const currencySymbols: Record<string, string> = {
+    ARS: "$",
+    USD: "USD ",
+  };
+  const locale = currency === "ARS" ? "es-AR" : "en-US";
+  const symbol = currencySymbols[currency] || currency;
+  return symbol + " " + new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(n);
 }
 
 const MONTHS_ES = [

@@ -4,7 +4,20 @@
       "Bash(curl -s -X POST http://localhost:3001/api/auth/login -H 'Content-Type: application/json' -d '{\\\\\"email\\\\\":\\\\\"admin@bitlogic.com.ar\\\\\",\\\\\"password\\\\\":\\\\\"Cambiar123!\\\\\"}')",
       "Bash(curl -s -H 'Authorization: Bearer __CMDSUB_OUTPUT__')",
       "Bash(cat > *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(node src/scripts/purge-demo-residual-data.js)",
+      "Bash(node -e ' *)",
+      "Bash(git commit -m 'scripts: add safe demo data purge script *)",
+      "Bash(git commit -m 'doc: cleanup demo residual data - final report *)",
+      "Bash(curl -s \"http://localhost:3001/api/health\")",
+      "Bash(curl -s \"http://localhost:3001/api/system/status\")",
+      "Bash(curl -s \"http://localhost:4173\")",
+      "Bash(lsof -ti:3001,4173,5173)",
+      "Bash(curl -s -I \"http://localhost:3001/api/auth/me\")",
+      "Bash(node -c src/app.js)",
+      "Bash(taskkill /F /IM node.exe /FI \"WINDOWTITLE eq*npm*\")",
+      "Bash(rm -rf \"c:/Users/santi/OneDrive/Escritorio/bitlogic-client-hub-main/backend/node_modules/.bin/..\")",
+      "Bash(tee /tmp/backend_logs.txt)"
     ],
     "additionalDirectories": [
       "\\tmp"

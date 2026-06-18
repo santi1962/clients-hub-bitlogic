@@ -1,5 +1,6 @@
 import pool from "../db/pool.js";
 import { auditService } from "./audit.service.js";
+import { fixEncoding } from "../utils/encoding.js";
 
 export async function getAdminDashboard() {
   const client = await pool.connect();
@@ -298,6 +299,8 @@ export async function getAdminDashboard() {
 
       recentActivity: await auditService.getRecentActivity(10),
     };
+
+    return fixEncoding(result);
   } finally {
     client.release();
   }

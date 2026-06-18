@@ -1,4 +1,4 @@
-﻿import { createFileRoute, Link } from "@tanstack/react-router";
+﻿import { createFileRoute } from "@tanstack/react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,8 +20,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, AlertTriangle, Trash2 } from "lucide-react";
-import { formatDate } from "@/lib/mock-data";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Plus, Search, AlertTriangle, Trash2, RotateCw, Mail } from "lucide-react";
+import { formatDate, formatMoney } from "@/lib/mock-data";
 import { useDomains, useDeleteDomain } from "@/lib/queries";
 import { useState } from "react";
 
@@ -34,6 +43,14 @@ function DominiosPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [expiringInDays, setExpiringInDays] = useState("");
+  const [selectedDomain, setSelectedDomain] = useState(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editData, setEditData] = useState({
+    expirationDate: "",
+    annualCost: "0",
+    customerPrice: "0",
+    autoRenew: false,
+  });
 
   const { data, isLoading, isError } = useDomains({
     search: search || undefined,
@@ -43,6 +60,16 @@ function DominiosPage() {
 
   const deleteMutation = useDeleteDomain();
   const domains = data?.data ?? [];
+
+  const handleViewDomain = (domain) => {
+    setSelectedDomain(domain);
+    setEditData({
+      expirationDate: domain.expirationDate,
+      annualCost: domain.annualCost?.toString() || "0",
+      customerPrice: domain.customerPrice?.toString() || "0",
+      autoRenew: domain.autoRenew || false,
+    });
+  };
 
   const daysUntil = (expiration: string) => {
     const diff = new Date(expiration).getTime() - Date.now();
@@ -143,10 +170,8 @@ function DominiosPage() {
                         <StatusBadge status={d.status} />
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button asChild size="sm" variant="ghost">
-                          <Link to="/dominios/$id" params={{ id: d.id }}>
-                            Ver
-                          </Link>
+                        <Button size="sm" variant="ghost" onClick={() => handleViewDomain(d)}>
+                          Ver
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -157,6 +182,65 @@ function DominiosPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!selectedDomain} onOpenChange={(open) => !open && setSelectedDomain(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar dominio</DialogTitle>
+            <DialogDescription>{selectedDomain?.domain}</DialogDescription>
+          </DialogHeader>
+          {selectedDomain && (
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label>Fecha de vencimiento</Label>
+                <Input
+                  type="date"
+                  value={editData.expirationDate}
+                  onChange={(e) => setEditData({ ...editData, expirationDate: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Costo anual</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={editData.annualCost}
+                  onChange={(e) => setEditData({ ...editData, annualCost: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Precio al cliente</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={editData.customerPrice}
+                  onChange={(e) => setEditData({ ...editData, customerPrice: e.target.value })}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="autoRenew"
+                  checked={editData.autoRenew}
+                  onChange={(e) => setEditData({ ...editData, autoRenew: e.target.checked })}
+                  className="rounded border-border"
+                />
+                <Label htmlFor="autoRenew" className="cursor-pointer">
+                  Auto renovación activada
+                </Label>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedDomain(null)}>
+              Cancelar
+            </Button>
+            <Button onClick={() => setSelectedDomain(null)}>
+              Guardar cambios
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

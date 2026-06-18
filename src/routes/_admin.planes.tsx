@@ -12,9 +12,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, Edit3, AlertTriangle } from "lucide-react";
+import { Check, Edit3, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { formatMoney, type Plan } from "@/lib/mock-data";
-import { usePlans, useUpdatePlan } from "@/lib/queries";
+import { usePlans, useUpdatePlan, useCreatePlan, useDeletePlan } from "@/lib/queries";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_admin/planes")({
   head: () => ({ meta: [{ title: "Planes — Bitlogic" }] }),
@@ -24,10 +25,14 @@ export const Route = createFileRoute("/_admin/planes")({
 function PlansPage() {
   const { data, isLoading, isError } = usePlans();
   const updatePlanMutation = useUpdatePlan();
+  const createPlanMutation = useCreatePlan();
+  const deletePlanMutation = useDeletePlan();
 
   const plans = data?.data ?? [];
   const [editing, setEditing] = useState<Plan | null>(null);
   const [price, setPrice] = useState<number>(0);
+  const [creatingNew, setCreatingNew] = useState(false);
+  const [newPlanData, setNewPlanData] = useState({ name: "", monthlyPrice: 0 });
 
   const startEdit = (p: Plan) => {
     setEditing(p);
@@ -39,6 +44,25 @@ function PlansPage() {
       { id: editing.id, monthlyPrice: price },
       { onSuccess: () => setEditing(null) },
     );
+  };
+
+  const handleCreatePlan = () => {
+    if (!newPlanData.name.trim()) {
+      toast.error("Ingresa el nombre del plan");
+      return;
+    }
+    createPlanMutation.mutate(newPlanData, {
+      onSuccess: () => {
+        setCreatingNew(false);
+        setNewPlanData({ name: "", monthlyPrice: 0 });
+      },
+    });
+  };
+
+  const handleDeletePlan = (planId: string) => {
+    if (confirm("¿Seguro que deseas eliminar este plan?")) {
+      deletePlanMutation.mutate(planId);
+    }
   };
 
   if (isLoading) {
@@ -71,11 +95,16 @@ function PlansPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Planes de hosting</h1>
-        <p className="text-sm text-muted-foreground">
-          Configurá los planes que ofrecés a tus clientes.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Planes de hosting</h1>
+          <p className="text-sm text-muted-foreground">
+            Configurá los planes que ofrecés a tus clientes.
+          </p>
+        </div>
+        <Button onClick={() => setCreatingNew(true)}>
+          <Plus className="h-4 w-4 mr-2" /> Nuevo plan
+        </Button>
       </div>
 
       <div className="grid gap-5 md:grid-cols-3">
@@ -123,9 +152,19 @@ function PlansPage() {
                   <Check className="h-4 w-4 text-accent" /> Certificado SSL gratis
                 </li>
               </ul>
-              <Button variant="outline" className="w-full" onClick={() => startEdit(p)}>
-                <Edit3 className="h-4 w-4" /> Editar plan
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => startEdit(p)}>
+                  <Edit3 className="h-4 w-4" /> Editar
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDeletePlan(p.id)}
+                  disabled={deletePlanMutation.isPending}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ))}
@@ -138,7 +177,7 @@ function PlansPage() {
           </DialogHeader>
           <div className="grid gap-3">
             <div className="grid gap-1.5">
-              <Label>Precio mensual (USD)</Label>
+              <Label>Precio mensual</Label>
               <Input
                 type="number"
                 value={price}
@@ -158,6 +197,46 @@ function PlansPage() {
             </Button>
             <Button onClick={save} disabled={updatePlanMutation.isPending}>
               {updatePlanMutation.isPending ? "Guardando…" : "Guardar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={creatingNew} onOpenChange={setCreatingNew}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Crear nuevo plan</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid gap-1.5">
+              <Label>Nombre del plan</Label>
+              <Input
+                value={newPlanData.name}
+                onChange={(e) => setNewPlanData({ ...newPlanData, name: e.target.value })}
+                placeholder="ej: Starter, Pro, Business"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Precio mensual</Label>
+              <Input
+                type="number"
+                value={newPlanData.monthlyPrice}
+                onChange={(e) => setNewPlanData({ ...newPlanData, monthlyPrice: Number(e.target.value) })}
+                min={0}
+                step={0.01}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setCreatingNew(false)}
+              disabled={createPlanMutation.isPending}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleCreatePlan} disabled={createPlanMutation.isPending}>
+              {createPlanMutation.isPending ? "Creando…" : "Crear plan"}
             </Button>
           </DialogFooter>
         </DialogContent>

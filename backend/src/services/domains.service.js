@@ -1,4 +1,5 @@
 import pool from "../db/pool.js";
+import { fixEncoding } from "../utils/encoding.js";
 
 const DOMAIN_SELECT = `
   d.id, d.client_id, d.hosting_service_id, d.domain, d.registrar,
@@ -86,10 +87,10 @@ export async function listDomains({
     const countResult = await client.query(countQuery, countParams);
     const total = countResult.rows[0].count;
 
-    return {
+    return fixEncoding({
       data: result.rows,
       meta: { page, limit, total, pages: Math.ceil(total / limit) },
-    };
+    });
   } finally {
     client.release();
   }

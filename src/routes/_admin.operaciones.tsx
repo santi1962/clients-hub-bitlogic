@@ -1,12 +1,5 @@
-// ============================================================
-// CENTRO DE OPERACIONES — Command Center
-// ------------------------------------------------------------
-// Vista unificada para el equipo operativo.
-// Backend futuro: endpoint agregado /api/ops/summary que combine
-// los conteos en una sola query (más eficiente que N llamadas).
-// ============================================================
-
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/status-badge";
@@ -19,25 +12,24 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Command, LifeBuoy, Globe, Wallet, Server, ListChecks, ArrowRight } from "lucide-react";
-import {
-  services,
-  payments,
-  getClient,
-  getPlan,
-  formatDate,
-  formatMoney,
-  daysUntil,
-  isWithinNextDays,
-} from "@/lib/mock-data";
-import { tickets, domains, tasks, priorityColor, priorityLabel } from "@/lib/mock-data-extra";
+import { Command, LifeBuoy, Globe, Wallet, Server, ListChecks, ArrowRight, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ActivityTimeline } from "@/components/activity-timeline";
+import { dashboardApi } from "@/lib/api-client";
+import { formatDate, formatMoney } from "@/lib/mock-data";
 
 export const Route = createFileRoute("/_admin/operaciones")({
   head: () => ({ meta: [{ title: "Centro de Operaciones — Bitlogic" }] }),
   component: OperacionesPage,
 });
+
+function EmptyState() {
+  return (
+    <div className="flex items-center justify-center py-8 text-muted-foreground">
+      <AlertCircle className="h-4 w-4 mr-2" />
+      <p className="text-sm">No hay datos disponibles</p>
+    </div>
+  );
+}
 
 function SectionCard({
   title,
@@ -46,6 +38,7 @@ function SectionCard({
   to,
   color,
   children,
+  isLoading,
 }: {
   title: string;
   icon: any;
@@ -53,6 +46,7 @@ function SectionCard({
   to: string;
   color: string;
   children: React.ReactNode;
+  isLoading?: boolean;
 }) {
   return (
     <Card className="border-border/60 bg-card/60">
@@ -62,14 +56,16 @@ function SectionCard({
             <Icon className="h-4 w-4" />
           </span>
           {title}
-          <Badge
-            variant="outline"
-            className="ml-1 rounded-full bg-background/40 border-border/60 text-[10px]"
-          >
-            {count}
-          </Badge>
+          {!isLoading && (
+            <Badge
+              variant="outline"
+              className="ml-1 rounded-full bg-background/40 border-border/60 text-[10px]"
+            >
+              {count}
+            </Badge>
+          )}
         </CardTitle>
-        <Button asChild variant="ghost" size="sm">
+        <Button asChild variant="ghost" size="sm" disabled={isLoading}>
           <Link to={to as any}>
             Ver todo <ArrowRight className="h-3 w-3" />
           </Link>
@@ -81,32 +77,15 @@ function SectionCard({
 }
 
 function OperacionesPage() {
-  const openTickets = tickets
-    .filter(
-      (t) =>
-        t.status === "abierto" || t.status === "en_proceso" || t.status === "esperando_cliente",
-    )
-    .slice(0, 5);
-  const domainsDueSoon = domains
-    .filter((d) => d.status !== "transferido")
-    .filter((d) => {
-      const diff = daysUntil(d.expiresAt);
-      return diff >= -30 && diff <= 30;
-    })
-    .sort((a, b) => a.expiresAt.localeCompare(b.expiresAt))
-    .slice(0, 5);
-  const pendingPays = payments
-    .filter((p) => p.status === "pendiente" || p.status === "vencido")
-    .slice(0, 5);
-  const upcomingSvc = services
-    .filter((s) => s.status !== "cancelado" && s.status !== "suspendido")
-    .filter((s) => isWithinNextDays(s.nextDueDate, 14))
-    .sort((a, b) => a.nextDueDate.localeCompare(b.nextDueDate))
-    .slice(0, 5);
-  const pendingTasks = tasks
-    .filter((t) => t.status === "pendiente" || t.status === "en_proceso")
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-    .slice(0, 5);
+  const { data: dashboard, isLoading } = useQuery({
+    queryKey: ["dashboard:admin"],
+    queryFn: () => dashboardApi.admin(),
+    staleTime: 60000,
+  });
+
+  const upcomingServices = dashboard?.upcomingServices ?? [];
+  const recentPayments = dashboard?.recentPayments ?? [];
+  const upcomingDomains = dashboard?.upcomingDomains ?? [];
 
   return (
     <div className="space-y-6">
@@ -124,192 +103,113 @@ function OperacionesPage() {
 
       <div className="grid gap-6 xl:grid-cols-2">
         <SectionCard
-          title="Tickets abiertos"
-          icon={LifeBuoy}
-          count={openTickets.length}
-          to="/soporte"
-          color="bg-info/15 text-info"
-        >
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>#</TableHead>
-                <TableHead>Asunto</TableHead>
-                <TableHead>Cliente</TableHead>
-                <TableHead>Prio.</TableHead>
-                <TableHead>Estado</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {openTickets.map((t) => (
-                <TableRow key={t.id}>
-                  <TableCell className="font-mono text-[11px] text-muted-foreground">
-                    {t.number}
-                  </TableCell>
-                  <TableCell className="max-w-[220px] truncate">{t.subject}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {getClient(t.clientId)?.company}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "rounded-full border px-2 py-0 text-[10px]",
-                        priorityColor[t.priority],
-                      )}
-                    >
-                      {priorityLabel[t.priority]}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge status={t.status} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </SectionCard>
-
-        <SectionCard
           title="Dominios por vencer"
           icon={Globe}
-          count={domainsDueSoon.length}
+          count={upcomingDomains.length}
           to="/dominios"
           color="bg-warning/15 text-warning"
+          isLoading={isLoading}
         >
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Dominio</TableHead>
-                <TableHead>Cliente</TableHead>
-                <TableHead>Vence</TableHead>
-                <TableHead>Estado</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {domainsDueSoon.map((d) => {
-                const diff = daysUntil(d.expiresAt);
-                return (
+          {upcomingDomains.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Dominio</TableHead>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Vence</TableHead>
+                  <TableHead>Estado</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {upcomingDomains.map((d) => (
                   <TableRow key={d.id}>
                     <TableCell className="font-medium">{d.domain}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {getClient(d.clientId)?.company}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col">
-                        <span>{formatDate(d.expiresAt)}</span>
-                        <span
-                          className={
-                            "text-[11px] " + (diff < 0 ? "text-destructive" : "text-warning")
-                          }
-                        >
-                          {diff < 0 ? `${Math.abs(diff)}d venc.` : `en ${diff}d`}
-                        </span>
-                      </div>
-                    </TableCell>
+                    <TableCell className="text-muted-foreground">{d.clientCompany}</TableCell>
+                    <TableCell>{formatDate(d.expirationDate)}</TableCell>
                     <TableCell>
                       <StatusBadge status={d.status} />
                     </TableCell>
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <EmptyState />
+          )}
         </SectionCard>
 
         <SectionCard
           title="Pagos pendientes"
           icon={Wallet}
-          count={pendingPays.length}
+          count={recentPayments.length}
           to="/pagos"
           color="bg-accent/15 text-accent"
+          isLoading={isLoading}
         >
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Cliente</TableHead>
-                <TableHead>Período</TableHead>
-                <TableHead className="text-right">Monto</TableHead>
-                <TableHead>Estado</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {pendingPays.map((p) => (
-                <TableRow key={p.id}>
-                  <TableCell className="font-medium">{getClient(p.clientId)?.company}</TableCell>
-                  <TableCell className="text-muted-foreground">{p.periodMonth}</TableCell>
-                  <TableCell className="text-right font-medium">{formatMoney(p.amount)}</TableCell>
-                  <TableCell>
-                    <StatusBadge status={p.status} />
-                  </TableCell>
+          {recentPayments.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Período</TableHead>
+                  <TableHead className="text-right">Monto</TableHead>
+                  <TableHead>Estado</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {recentPayments.slice(0, 5).map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-medium">{p.clientCompany}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {p.periodMonth}/{p.periodYear}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">{formatMoney(p.amount)}</TableCell>
+                    <TableCell>
+                      <StatusBadge status={p.status} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <EmptyState />
+          )}
         </SectionCard>
 
         <SectionCard
           title="Servicios por vencer"
           icon={Server}
-          count={upcomingSvc.length}
+          count={upcomingServices.length}
           to="/servicios"
           color="bg-primary/15 text-primary"
+          isLoading={isLoading}
         >
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Dominio</TableHead>
-                <TableHead>Plan</TableHead>
-                <TableHead>Vence</TableHead>
-                <TableHead className="text-right">Monto</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {upcomingSvc.map((s) => (
-                <TableRow key={s.id}>
-                  <TableCell className="font-medium">{s.domain}</TableCell>
-                  <TableCell>{getPlan(s.planId)?.name}</TableCell>
-                  <TableCell>{formatDate(s.nextDueDate)}</TableCell>
-                  <TableCell className="text-right">{formatMoney(s.monthlyPrice)}</TableCell>
+          {upcomingServices.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Dominio</TableHead>
+                  <TableHead>Plan</TableHead>
+                  <TableHead>Vence</TableHead>
+                  <TableHead className="text-right">Monto</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </SectionCard>
-
-        <SectionCard
-          title="Tareas pendientes"
-          icon={ListChecks}
-          count={pendingTasks.length}
-          to="/tareas"
-          color="bg-success/15 text-success"
-        >
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Tarea</TableHead>
-                <TableHead>Responsable</TableHead>
-                <TableHead>Vence</TableHead>
-                <TableHead>Estado</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {pendingTasks.map((t) => (
-                <TableRow key={t.id}>
-                  <TableCell className="max-w-[260px] truncate font-medium">{t.title}</TableCell>
-                  <TableCell className="text-muted-foreground">{t.assignee}</TableCell>
-                  <TableCell>{formatDate(t.dueDate)}</TableCell>
-                  <TableCell>
-                    <StatusBadge status={t.status} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {upcomingServices.slice(0, 5).map((s) => (
+                  <TableRow key={s.id}>
+                    <TableCell className="font-medium">{s.domain}</TableCell>
+                    <TableCell>{s.planName}</TableCell>
+                    <TableCell>{formatDate(s.nextDueDate)}</TableCell>
+                    <TableCell className="text-right">{formatMoney(s.monthlyPrice)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <EmptyState />
+          )}
         </SectionCard>
       </div>
-
-      <ActivityTimeline title="Actividad reciente de toda la operación" limit={15} />
     </div>
   );
 }

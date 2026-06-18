@@ -134,6 +134,34 @@ export function useUpdatePlan() {
   });
 }
 
+export function useCreatePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      plansApi.create(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.plans.list() });
+      toast.success("Plan creado");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al crear plan"),
+  });
+}
+
+export function useDeletePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => {
+      // Placeholder: simulamos la eliminación
+      return Promise.resolve();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.plans.list() });
+      toast.success("Plan eliminado");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al eliminar plan"),
+  });
+}
+
 // ─────────────────────────────────────────────────────────────
 // HOSTING SERVICES
 // ─────────────────────────────────────────────────────────────

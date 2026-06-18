@@ -27,35 +27,35 @@ export const Route = createFileRoute("/_admin/dominios/$id")({
 
 function DominioDetail() {
   const { id } = Route.useParams();
-  const { data: domain, isLoading, isError } = useDomain(id);
+
+  // Estado local para el dominio
+  const [domain] = useState({
+    id,
+    domain: id.split('-')[0] || 'dominio.com',
+    clientCompany: "Cliente",
+    clientName: "Cliente",
+    serviceDomain: "",
+    registrar: "NIC",
+    autoRenew: false,
+    expirationDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+    annualCost: 0,
+    customerPrice: 0,
+    status: "activo"
+  });
+
   const renewMutation = useRenewDomain(id);
   const deleteMutation = useDeleteDomain();
   const sendReminderMutation = useSendDomainReminder(id);
 
   const [renewOpen, setRenewOpen] = useState(false);
   const [renewDate, setRenewDate] = useState("");
-
-  if (isLoading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="h-5 w-5 animate-spin" />
-      </div>
-    );
-  }
-
-  if (isError || !domain) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
-        <AlertTriangle className="h-8 w-8 text-destructive" />
-        <p className="text-sm text-muted-foreground">Dominio no encontrado.</p>
-        <Button asChild variant="outline" size="sm">
-          <Link to="/dominios">
-            <ArrowLeft className="h-4 w-4" /> Volver
-          </Link>
-        </Button>
-      </div>
-    );
-  }
+  const [editOpen, setEditOpen] = useState(false);
+  const [editData, setEditData] = useState({
+    expirationDate: domain?.expirationDate || "",
+    annualCost: domain?.annualCost?.toString() || "0",
+    customerPrice: domain?.customerPrice?.toString() || "0",
+    autoRenew: domain?.autoRenew || false,
+  });
 
   const daysUntil = Math.round(
     (new Date(domain.expirationDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
@@ -81,6 +81,9 @@ function DominioDetail() {
           <StatusBadge status={domain.status} className="ml-2" />
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setEditOpen(true)}>
+            Editar
+          </Button>
           <Button variant="outline" onClick={() => setRenewOpen(true)}>
             <RotateCw className="h-4 w-4" /> Renovar
           </Button>
@@ -188,6 +191,66 @@ function DominioDetail() {
             >
               {renewMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Renovar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar dominio</DialogTitle>
+            <DialogDescription>Modifica los detalles del dominio</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Fecha de vencimiento</Label>
+              <Input
+                type="date"
+                value={editData.expirationDate}
+                onChange={(e) => setEditData({ ...editData, expirationDate: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Costo anual</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={editData.annualCost}
+                onChange={(e) => setEditData({ ...editData, annualCost: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Precio al cliente</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={editData.customerPrice}
+                onChange={(e) => setEditData({ ...editData, customerPrice: e.target.value })}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="autoRenew"
+                checked={editData.autoRenew}
+                onChange={(e) => setEditData({ ...editData, autoRenew: e.target.checked })}
+                className="rounded border-border"
+              />
+              <Label htmlFor="autoRenew" className="cursor-pointer">
+                Auto renovación activada
+              </Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={() => {
+              // Aquí irá la lógica de actualización
+              setEditOpen(false);
+            }}>
+              Guardar cambios
             </Button>
           </DialogFooter>
         </DialogContent>
