@@ -129,7 +129,17 @@
       "Bash(npm exec -- node -e ' *)",
       "Bash(curl -X POST http://localhost:3002/api/temp/create-service)",
       "Bash(git commit -m 'chore: revert mock data creation, keep system clean *)",
-      "Bash(git commit -m 'cleanup: completely remove all mock data from mock-data.ts *)"
+      "Bash(git commit -m 'cleanup: completely remove all mock data from mock-data.ts *)",
+      "Bash(pkill -9 node)",
+      "Bash(pkill -9 npm)",
+      "Bash(pkill -9 -f \"node|npm\")",
+      "Bash(curl -s http://localhost:3002/api/dashboard/admin)",
+      "Bash(curl -i http://localhost:3002/api/dashboard/admin)",
+      "Bash(cat > *)",
+      "Bash(git commit -m 'cleanup: remove all hardcoded mock data from pages *)"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
     ]
   }
 }

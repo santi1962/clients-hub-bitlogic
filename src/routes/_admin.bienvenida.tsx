@@ -40,8 +40,7 @@ function Welcome() {
               {greet}, {user.name.split(" ")[0]}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Tenés <strong className="text-foreground">3 servicios</strong> por vencer esta semana
-              y <strong className="text-foreground">2 tareas</strong> sin asignar.
+              Sistema limpio, listo para comenzar.
             </p>
           </div>
           <Button asChild size="lg">
@@ -59,10 +58,10 @@ function Welcome() {
             <CardTitle className="text-sm">Resumen del día</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <Row icon={Users} label="Clientes activos" value="42" />
-            <Row icon={Server} label="Servicios activos" value="68" />
-            <Row icon={Wallet} label="Cobrado hoy" value="$ 38.300" />
-            <Row icon={FileText} label="Avisos emitidos" value="5" />
+            <Row icon={Users} label="Clientes activos" value="0" />
+            <Row icon={Server} label="Servicios activos" value="0" />
+            <Row icon={Wallet} label="Cobrado hoy" value="$ 0" />
+            <Row icon={FileText} label="Avisos emitidos" value="0" />
           </CardContent>
         </Card>
 
@@ -74,9 +73,7 @@ function Welcome() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <DueRow domain="acme.com.ar" days={3} kind="Hosting" />
-            <DueRow domain="estudio-lopez.ar" days={7} kind="Dominio" />
-            <DueRow domain="studionorte.com" days={12} kind="Hosting" />
+            <p className="text-muted-foreground">Sin vencimientos próximos</p>
           </CardContent>
         </Card>
 
@@ -88,9 +85,7 @@ function Welcome() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <TicketRow id="T-184" subject="Email no llega" client="Acme S.A." />
-            <TicketRow id="T-181" subject="Sitio caído intermitente" client="Studio Norte" />
-            <TicketRow id="T-179" subject="SSL vencido" client="López & Asoc." />
+            <p className="text-muted-foreground">Sin tickets urgentes</p>
           </CardContent>
         </Card>
       </div>
@@ -119,7 +114,7 @@ function Welcome() {
             title="Revisar cobranza"
             desc="Pagos pendientes del mes"
           />
-          <Action to="/tareas" icon={ListChecks} title="Tareas pendientes" desc="2 sin asignar" />
+          <Action to="/tareas" icon={ListChecks} title="Tareas pendientes" desc="0 sin asignar" />
         </CardContent>
       </Card>
 

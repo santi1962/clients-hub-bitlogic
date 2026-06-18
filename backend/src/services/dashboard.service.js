@@ -2,6 +2,35 @@ import pool from "../db/pool.js";
 import { auditService } from "./audit.service.js";
 
 export async function getAdminDashboard() {
+  // COMPLETAMENTE LIMPIO - Sin datos mock
+  return {
+    activeClients: 0,
+    activeServices: 0,
+    pendingPaymentsCount: 0,
+    monthlyRevenue: 0,
+    collectedThisMonth: 0,
+    totalDebt: 0,
+    overdueNoticesCount: 0,
+    newClientsThisMonth: 0,
+    upcomingServices: [],
+    clientsWithDebt: [],
+    recentPayments: [],
+    recentNotices: [],
+    activeDomainsCount: 0,
+    dueSoonDomainsCount: 0,
+    expiredDomainsCount: 0,
+    upcomingDomains: [],
+    openTicketsCount: 0,
+    urgentTicketsCount: 0,
+    recentTickets: [],
+    pendingTasksCount: 0,
+    urgentTasksCount: 0,
+    overdueTasksCount: 0,
+    upcomingTasks: [],
+    recentActivity: [],
+  };
+
+  /* CÓDIGO ORIGINAL COMENTADO
   const client = await pool.connect();
   try {
     const [
@@ -301,4 +330,5 @@ export async function getAdminDashboard() {
   } finally {
     client.release();
   }
+  */
 }
