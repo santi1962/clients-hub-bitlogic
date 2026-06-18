@@ -76,6 +76,19 @@ function ServicesPage() {
   // Mutation para crear servicio
   const createServiceMutation = useCreateService();
 
+  const handlePlanChange = (selectedPlanId: string) => {
+    const plan = planList.find((p) => p.id === selectedPlanId);
+    if (plan) {
+      setFormData({
+        ...formData,
+        planId: selectedPlanId,
+        storageTotalGb: String(plan.storageGb),
+        emailsTotal: String(plan.emailsLimit),
+        monthlyPrice: String(plan.monthlyPrice),
+      });
+    }
+  };
+
   const handleCreateService = async () => {
     if (!formData.clientId || !formData.domain || !formData.planId || !formData.monthlyPrice) {
       alert("Por favor completa cliente, dominio, plan y precio");
@@ -257,7 +270,7 @@ function ServicesPage() {
                 <SelectContent>
                   {clientList.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
-                      {c.companyName}
+                      {c.company}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -277,7 +290,7 @@ function ServicesPage() {
               <Label>Plan</Label>
               <Select
                 value={formData.planId}
-                onValueChange={(val) => setFormData({ ...formData, planId: val })}
+                onValueChange={handlePlanChange}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecciona plan" />
@@ -285,7 +298,7 @@ function ServicesPage() {
                 <SelectContent>
                   {planList.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
-                      {p.name}
+                      {p.name} - ${p.monthlyPrice}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -299,7 +312,8 @@ function ServicesPage() {
                   type="number"
                   step="0.01"
                   value={formData.monthlyPrice}
-                  onChange={(e) => setFormData({ ...formData, monthlyPrice: e.target.value })}
+                  readOnly
+                  className="bg-muted"
                   placeholder="0.00"
                 />
               </div>
@@ -308,7 +322,8 @@ function ServicesPage() {
                 <Input
                   type="number"
                   value={formData.storageTotalGb}
-                  onChange={(e) => setFormData({ ...formData, storageTotalGb: e.target.value })}
+                  readOnly
+                  className="bg-muted"
                 />
               </div>
             </div>
@@ -319,7 +334,8 @@ function ServicesPage() {
                 <Input
                   type="number"
                   value={formData.emailsTotal}
-                  onChange={(e) => setFormData({ ...formData, emailsTotal: e.target.value })}
+                  readOnly
+                  className="bg-muted"
                 />
               </div>
               <div>

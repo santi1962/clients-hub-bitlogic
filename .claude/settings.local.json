@@ -143,7 +143,9 @@
       "Bash(git commit -m 'feat: add complete settings API infrastructure *)",
       "Bash(git commit -m 'feat: make all settings sections fully functional *)",
       "Bash(findstr \"3000\\\\|3002\")",
-      "PowerShell(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -eq 'node' } | Stop-Process -Force)"
+      "PowerShell(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -eq 'node' } | Stop-Process -Force)",
+      "Bash(curl -s http://localhost:3002/api/auth/me -H 'Authorization: Bearer invalid')",
+      "Bash(curl -s -X POST http://localhost:3002/api/auth/login -H 'Content-Type: application/json' -d '{ *)"
     ],
     "additionalDirectories": [
       "\\tmp"
