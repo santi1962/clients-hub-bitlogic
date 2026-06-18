@@ -40,7 +40,7 @@ import {
 } from "@/components/ui/select";
 import { PermissionGuard } from "@/components/permission-guard";
 import { ROLE_LABEL, permissionsFor, type Role, useAuth } from "@/lib/auth";
-import { clients } from "@/lib/mock-data";
+import { useClients } from "@/lib/queries";
 import { MoreHorizontal, UserPlus, Shield, CheckCircle2, XCircle, Search } from "lucide-react";
 import { toast } from "sonner";
 
@@ -89,6 +89,7 @@ function StatusPill({ status }: { status: InternalUser["status"] }) {
 
 function UsersPage() {
   const { user: me } = useAuth();
+  const { data: clientsData } = useClients();
   const [internal, setInternal] = useState<InternalUser[]>(INITIAL_INTERNAL);
   const [query, setQuery] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -108,14 +109,14 @@ function UsersPage() {
 
   const portalUsers = useMemo(
     () =>
-      clients.map((c, i) => ({
+      (clientsData?.data ?? []).map((c) => ({
         id: c.id,
         name: c.name,
         email: c.email,
-        lastLogin: i % 3 === 0 ? "Nunca" : i % 2 === 0 ? "Hoy" : "Hace 4 días",
-        status: i === 5 ? "inactivo" : ("activo" as InternalUser["status"]),
+        lastLogin: "—",
+        status: c.status === "activo" ? "activo" : ("inactivo" as InternalUser["status"]),
       })),
-    [],
+    [clientsData?.data],
   );
 
   const setStatus = (id: string, status: InternalUser["status"]) => {
