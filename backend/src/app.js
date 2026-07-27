@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { fileURLToPath } from "url";
 import path from "path";
+import { readFileSync } from "fs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import helmet from "helmet";
 import cors from "cors";
@@ -30,11 +31,29 @@ import onboardingRoutes from "./routes/onboarding.routes.js";
 import backupsRoutes from "./routes/backups.routes.js";
 import mercadopagoRoutes from "./routes/mercadopago.routes.js";
 import auditRoutes from "./routes/audit.routes.js";
-import { errorHandler } from "./middlewares/errorHandler.js";
+import { errorHandler, notFoundHandler } from "./middlewares/errorHandler.js";
 import { authRequired } from "./middlewares/authRequired.js";
 import { requireStaff } from "./middlewares/requireRole.js";
+import { requestId } from "./middlewares/requestId.js";
+import { createLogger } from "./utils/logger.js";
+
+const log = createLogger("app");
+
+const pkgVersion = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(path.join(__dirname, "../package.json"), "utf8"));
+    return pkg.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+})();
 
 const app = express();
+
+// ── Contexto de request ──────────────────────────────────────
+// Va antes que todo lo demás para que esté disponible en cualquier log
+// posterior (incluidos los del error handler).
+app.use(requestId);
 
 // ── Seguridad ─────────────────────────────────────────────────
 // crossOriginResourcePolicy en "cross-origin": el frontend (puerto Vite)
@@ -49,26 +68,58 @@ app.use(cookieParser());
 
 // Los uploads se sirven sólo a través del endpoint autenticado /api/uploads/tickets/:filename
 
-// ── Health check ──────────────────────────────────────────────
-app.get("/api/health", async (_req, res) => {
+// ── Health checks ────────────────────────────────────────────
+async function getReadiness() {
   let database = "connected";
   try {
     await pool.query("SELECT 1");
   } catch {
     database = "disconnected";
   }
-  res.status(database === "connected" ? 200 : 503).json({
-    status: database === "connected" ? "ok" : "degraded",
-    service: "bitlogic-backend",
-    database,
+  const healthy = database === "connected";
+  return {
+    healthy,
+    body: {
+      status: healthy ? "ok" : "degraded",
+      service: "bitlogic-backend",
+      version: pkgVersion,
+      environment: config.nodeEnv,
+      uptime: Math.floor(process.uptime()),
+      database,
+      timestamp: new Date().toISOString(),
+    },
+  };
+}
+
+// /live: el proceso está vivo y puede responder — no toca la base de datos,
+// tiene que ser prácticamente instantáneo. Sirve para que un orquestador
+// sepa si hay que reiniciar el proceso, no si está listo para tráfico real.
+app.get("/api/health/live", (_req, res) => {
+  res.status(200).json({
+    status: "ok",
+    uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
   });
 });
 
+// /ready: además de vivo, puede atender tráfico real (la base de datos responde).
+app.get("/api/health/ready", async (_req, res) => {
+  const { healthy, body } = await getReadiness();
+  res.status(healthy ? 200 : 503).json(body);
+});
+
+// Alias histórico: /api/health ya existía antes de separar live/ready y
+// puede estar en uso por herramientas externas de monitoreo. Se mantiene
+// con el mismo comportamiento que /ready.
+app.get("/api/health", async (_req, res) => {
+  const { healthy, body } = await getReadiness();
+  res.status(healthy ? 200 : 503).json(body);
+});
+
 // ── System Status ──────────────────────────────────────────────
-app.get("/api/system/status", authRequired, requireStaff, async (_req, res) => {
+app.get("/api/system/status", authRequired, requireStaff, async (req, res) => {
   const results = {
-    version: "1.0.0",
+    version: pkgVersion,
     uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
     database: "unknown",
@@ -113,7 +164,7 @@ app.get("/api/system/status", authRequired, requireStaff, async (_req, res) => {
     results.stats.tickets_open = parseInt(stats[3].rows[0]?.count || 0);
     results.stats.tasks_pending = parseInt(stats[4].rows[0]?.count || 0);
   } catch (err) {
-    console.error("[System] Error getting stats:", err.message);
+    log.error("Error obteniendo stats de /api/system/status", { requestId: req.requestId, err });
   }
 
   res.status(results.database === "ok" ? 200 : 503).json(results);
@@ -145,6 +196,7 @@ app.use("/api/webhooks", mercadopagoRoutes);
 app.use("/api/audit", auditRoutes);
 
 // ── Manejo de errores ─────────────────────────────────────────
+app.use(notFoundHandler);
 app.use(errorHandler);
 
 export default app;

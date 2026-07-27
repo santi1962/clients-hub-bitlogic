@@ -4,7 +4,7 @@
 import { tasksService } from "../services/tasks.service.js";
 import { auditService } from "../services/audit.service.js";
 
-export async function listTasks(req, res) {
+export async function listTasks(req, res, next) {
   try {
     const {
       status,
@@ -36,23 +36,21 @@ export async function listTasks(req, res) {
 
     res.json(result);
   } catch (err) {
-    console.error("Error listing tasks:", err);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 }
 
-export async function getTask(req, res) {
+export async function getTask(req, res, next) {
   try {
     const { id } = req.params;
     const task = await tasksService.getTask(id);
     res.json(task);
   } catch (err) {
-    console.error("Error getting task:", err);
-    res.status(err.message === "Task not found" ? 404 : 500).json({ error: err.message });
+    next(err);
   }
 }
 
-export async function createTask(req, res) {
+export async function createTask(req, res, next) {
   try {
     const {
       title,
@@ -68,7 +66,7 @@ export async function createTask(req, res) {
     const createdBy = req.user?.id;
 
     if (!title) {
-      return res.status(400).json({ error: "title required" });
+      return res.status(400).json({ error: { message: "title required" } });
     }
 
     const task = await tasksService.createTask({
@@ -95,12 +93,11 @@ export async function createTask(req, res) {
 
     res.status(201).json(task);
   } catch (err) {
-    console.error("Error creating task:", err);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 }
 
-export async function updateTask(req, res) {
+export async function updateTask(req, res, next) {
   try {
     const { id } = req.params;
     const oldTask = await tasksService.getTask(id);
@@ -116,12 +113,11 @@ export async function updateTask(req, res) {
     });
     res.json(task);
   } catch (err) {
-    console.error("Error updating task:", err);
-    res.status(err.message === "Task not found" ? 404 : 500).json({ error: err.message });
+    next(err);
   }
 }
 
-export async function deleteTask(req, res) {
+export async function deleteTask(req, res, next) {
   try {
     const { id } = req.params;
     const oldTask = await tasksService.getTask(id);
@@ -137,12 +133,11 @@ export async function deleteTask(req, res) {
     });
     res.json(task);
   } catch (err) {
-    console.error("Error deleting task:", err);
-    res.status(err.message === "Task not found" ? 404 : 500).json({ error: err.message });
+    next(err);
   }
 }
 
-export async function completeTask(req, res) {
+export async function completeTask(req, res, next) {
   try {
     const { id } = req.params;
     const oldTask = await tasksService.getTask(id);
@@ -158,12 +153,11 @@ export async function completeTask(req, res) {
     });
     res.json(task);
   } catch (err) {
-    console.error("Error completing task:", err);
-    res.status(err.message === "Task not found" ? 404 : 500).json({ error: err.message });
+    next(err);
   }
 }
 
-export async function reopenTask(req, res) {
+export async function reopenTask(req, res, next) {
   try {
     const { id } = req.params;
     const oldTask = await tasksService.getTask(id);
@@ -179,7 +173,6 @@ export async function reopenTask(req, res) {
     });
     res.json(task);
   } catch (err) {
-    console.error("Error reopening task:", err);
-    res.status(err.message === "Task not found" ? 404 : 500).json({ error: err.message });
+    next(err);
   }
 }

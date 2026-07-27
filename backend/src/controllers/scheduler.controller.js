@@ -48,7 +48,7 @@ export async function runJob(req, res, next) {
     const { jobName } = req.params;
 
     if (!jobName) {
-      return res.status(400).json({ error: "jobName required" });
+      return res.status(400).json({ error: { message: "jobName required" } });
     }
 
     const log = await schedulerService.executeJob(jobName, req.user);
@@ -59,9 +59,7 @@ export async function runJob(req, res, next) {
       message: `Job ${jobName} executed`,
     });
   } catch (err) {
-    res.status(400).json({
-      error: err.message,
-    });
+    next(err);
   }
 }
 
@@ -72,7 +70,7 @@ export async function getJobLatest(req, res, next) {
     const log = await schedulerService.getLatestLog(jobName);
 
     if (!log) {
-      return res.status(404).json({ error: "No logs found for this job" });
+      return res.status(404).json({ error: { message: "No logs found for this job" } });
     }
 
     res.json({ data: log });

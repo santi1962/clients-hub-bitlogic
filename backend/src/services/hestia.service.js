@@ -55,16 +55,20 @@ export const hestiaService = {
    */
   async callHestia(command, params = {}) {
     if (!config.hestia.url) {
-      throw new Error("HestiaCP URL not configured");
+      const err = new Error("HestiaCP URL not configured");
+      err.status = 502;
+      throw err;
     }
 
     const hasApiKey = config.hestia.apiKey;
     const hasUserPass = config.hestia.username && config.hestia.password;
 
     if (!hasApiKey && !hasUserPass) {
-      throw new Error(
+      const err = new Error(
         "HestiaCP not configured: set either HESTIA_API_KEY or HESTIA_USERNAME + HESTIA_PASSWORD"
       );
+      err.status = 502;
+      throw err;
     }
 
     return new Promise((resolve, reject) => {
@@ -105,6 +109,10 @@ export const hestiaService = {
           "Content-Length": Buffer.byteLength(postData),
         },
         rejectUnauthorized: config.hestia.verifySsl === true,
+        // Sin esto, un Hestia caído o una red que no responde deja la
+        // request colgada indefinidamente. No hay reintento automático:
+        // solo se corta y se informa el error al que llamó.
+        timeout: 10_000,
       };
 
       if (process.env.NODE_ENV === "development") {
@@ -207,6 +215,10 @@ export const hestiaService = {
         reject(new Error(`HestiaCP connection error: ${err.message}`));
       });
 
+      req.on("timeout", () => {
+        req.destroy(new Error("HestiaCP request timed out after 10s"));
+      });
+
       req.write(postData);
       req.end();
     });
@@ -274,7 +286,9 @@ export const hestiaService = {
     });
 
     if (!response.data || !response.data[username]) {
-      throw new Error(`User ${username} not found in HestiaCP`);
+      const err = new Error(`User ${username} not found in HestiaCP`);
+      err.status = 404;
+      throw err;
     }
 
     const userData = response.data[username];

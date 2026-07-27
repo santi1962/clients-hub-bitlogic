@@ -39,7 +39,11 @@ export const usersService = {
        RETURNING id, name, email`,
       [passwordHash, userId],
     );
-    if (!rows[0]) throw new Error("User not found");
+    if (!rows[0]) {
+      const err = new Error("User not found");
+      err.status = 404;
+      throw err;
+    }
     await pool.query(
       `UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
       [userId],
@@ -52,7 +56,11 @@ export const usersService = {
       `DELETE FROM users WHERE id = $1 AND role = 'cliente' RETURNING id`,
       [userId],
     );
-    if (!rows[0]) throw new Error("User not found");
+    if (!rows[0]) {
+      const err = new Error("User not found");
+      err.status = 404;
+      throw err;
+    }
     return rows[0];
   },
 };

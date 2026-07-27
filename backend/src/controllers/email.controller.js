@@ -3,19 +3,18 @@
  */
 import { emailService } from "../services/email.service.js";
 
-export async function testEmail(req, res) {
+export async function testEmail(req, res, next) {
   try {
     const { to } = req.body;
 
     if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
-      return res.status(400).json({ error: "Invalid email address" });
+      return res.status(400).json({ error: { message: "Invalid email address" } });
     }
 
     const result = await emailService.testEmail(to);
     res.json(result);
   } catch (err) {
-    console.error("Error sending test email:", err);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 }
 

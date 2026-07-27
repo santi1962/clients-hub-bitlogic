@@ -40,12 +40,16 @@ export const schedulerService = {
   async executeJob(jobName, user = null) {
     // Prevent double execution
     if (runningJobs.has(jobName)) {
-      throw new Error(`Job ${jobName} is already running`);
+      const err = new Error(`Job ${jobName} is already running`);
+      err.status = 409;
+      throw err;
     }
 
     const job = jobs.get(jobName);
     if (!job) {
-      throw new Error(`Job ${jobName} not found`);
+      const err = new Error(`Job ${jobName} not found`);
+      err.status = 404;
+      throw err;
     }
 
     const jobId = Date.now(); // Simple unique ID per execution

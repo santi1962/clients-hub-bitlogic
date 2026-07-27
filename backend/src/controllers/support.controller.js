@@ -4,15 +4,18 @@
 import { supportService } from "../services/support.service.js";
 import { emailService } from "../services/email.service.js";
 import { auditService } from "../services/audit.service.js";
+import { createLogger } from "../utils/logger.js";
 
-export async function listTickets(req, res) {
+const log = createLogger("support.controller");
+
+export async function listTickets(req, res, next) {
   try {
     let { clientId, serviceId, status, priority, assignedTo, search, page, limit } = req.query;
 
     // Si es cliente, solo ve sus propios tickets
     if (req.user?.role === "cliente") {
       if (!req.user.clientId) {
-        return res.status(403).json({ error: "Cliente sin clientId asociado" });
+        return res.status(403).json({ error: { message: "Cliente sin clientId asociado" } });
       }
       clientId = req.user.clientId; // Force own clientId
     }
@@ -30,12 +33,11 @@ export async function listTickets(req, res) {
 
     res.json(result);
   } catch (err) {
-    console.error("Error listing tickets:", err);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 }
 
-export async function getTicket(req, res) {
+export async function getTicket(req, res, next) {
   try {
     const { id } = req.params;
     const ticket = await supportService.getTicket(id);
@@ -43,7 +45,7 @@ export async function getTicket(req, res) {
     // Si es cliente, solo puede ver sus propios tickets
     if (req.user?.role === "cliente") {
       if (ticket.client_id !== req.user.clientId) {
-        return res.status(403).json({ error: "No tienes acceso a este ticket" });
+        return res.status(403).json({ error: { message: "No tienes acceso a este ticket" } });
       }
       // Filtrar mensajes internos
       ticket.messages = ticket.messages.filter((m) => !m.is_internal);
@@ -51,28 +53,27 @@ export async function getTicket(req, res) {
 
     res.json(ticket);
   } catch (err) {
-    console.error("Error getting ticket:", err);
-    res.status(err.message === "Ticket not found" ? 404 : 500).json({ error: err.message });
+    next(err);
   }
 }
 
-export async function createTicket(req, res) {
+export async function createTicket(req, res, next) {
   try {
     let { clientId, serviceId, subject, priority } = req.body;
     const createdBy = req.user?.id;
 
     if (!subject) {
-      return res.status(400).json({ error: "subject required" });
+      return res.status(400).json({ error: { message: "subject required" } });
     }
 
     // Si es cliente, forzar clientId = el suyo
     if (req.user?.role === "cliente") {
       if (!req.user.clientId) {
-        return res.status(403).json({ error: "Cliente sin clientId asociado" });
+        return res.status(403).json({ error: { message: "Cliente sin clientId asociado" } });
       }
       clientId = req.user.clientId; // Ignore body, use authenticated user
     } else if (!clientId) {
-      return res.status(400).json({ error: "clientId required for staff" });
+      return res.status(400).json({ error: { message: "clientId required for staff" } });
     }
 
     const ticket = await supportService.createTicket({
@@ -94,23 +95,21 @@ export async function createTicket(req, res) {
 
     res.status(201).json(ticket);
   } catch (err) {
-    console.error("Error creating ticket:", err);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 }
 
-export async function updateTicket(req, res) {
+export async function updateTicket(req, res, next) {
   try {
     const { id } = req.params;
     const ticket = await supportService.updateTicket(id, req.body);
     res.json(ticket);
   } catch (err) {
-    console.error("Error updating ticket:", err);
-    res.status(err.message === "Ticket not found" ? 404 : 500).json({ error: err.message });
+    next(err);
   }
 }
 
-export async function addMessage(req, res) {
+export async function addMessage(req, res, next) {
   try {
     const { id } = req.params;
     let { message, isInternal } = req.body;
@@ -129,7 +128,7 @@ export async function addMessage(req, res) {
     }
 
     if (!message && !attachmentUrl) {
-      return res.status(400).json({ error: "message or file required" });
+      return res.status(400).json({ error: { message: "message or file required" } });
     }
 
     // Clientes nunca pueden crear mensajes internos (forzar a false)
@@ -154,7 +153,7 @@ export async function addMessage(req, res) {
       try {
         await emailService.sendTicketReplyEmail(id, msg.id);
       } catch (emailErr) {
-        console.error("Email sending failed but message saved:", emailErr);
+        log.error("Fallo el email de notificación, el mensaje ya se guardó", { requestId: req.requestId, err: emailErr });
       }
     }
 
@@ -168,29 +167,27 @@ export async function addMessage(req, res) {
 
     res.status(201).json(msg);
   } catch (err) {
-    console.error("Error adding message:", err);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 }
 
-export async function assignTicket(req, res) {
+export async function assignTicket(req, res, next) {
   try {
     const { id } = req.params;
     const { assignedTo } = req.body;
 
     if (!assignedTo) {
-      return res.status(400).json({ error: "assignedTo required" });
+      return res.status(400).json({ error: { message: "assignedTo required" } });
     }
 
     const ticket = await supportService.assignTicket(id, assignedTo);
     res.json(ticket);
   } catch (err) {
-    console.error("Error assigning ticket:", err);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 }
 
-export async function resolveTicket(req, res) {
+export async function resolveTicket(req, res, next) {
   try {
     const { id } = req.params;
     const oldTicket = await supportService.getTicket(id, req.user);
@@ -206,12 +203,11 @@ export async function resolveTicket(req, res) {
     });
     res.json(ticket);
   } catch (err) {
-    console.error("Error resolving ticket:", err);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 }
 
-export async function closeTicket(req, res) {
+export async function closeTicket(req, res, next) {
   try {
     const { id } = req.params;
     const oldTicket = await supportService.getTicket(id, req.user);
@@ -227,12 +223,11 @@ export async function closeTicket(req, res) {
     });
     res.json(ticket);
   } catch (err) {
-    console.error("Error closing ticket:", err);
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 }
 
-export async function deleteTicket(req, res) {
+export async function deleteTicket(req, res, next) {
   try {
     const { id } = req.params;
     const ticket = await supportService.getTicket(id);
@@ -246,7 +241,6 @@ export async function deleteTicket(req, res) {
     });
     res.status(204).end();
   } catch (err) {
-    console.error("Error deleting ticket:", err);
-    res.status(err.message === "Ticket not found" ? 404 : 500).json({ error: err.message });
+    next(err);
   }
 }

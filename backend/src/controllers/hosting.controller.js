@@ -169,12 +169,12 @@ export async function syncHestia(req, res, next) {
     const { hestiaUsername } = req.body ?? {};
 
     if (!hestiaUsername) {
-      return res.status(400).json({ error: "hestiaUsername required" });
+      return res.status(400).json({ error: { message: "hestiaUsername required" } });
     }
 
     const service = await hostingService.getServiceById(req.params.id);
     if (!service) {
-      return res.status(404).json({ error: "Service not found" });
+      return res.status(404).json({ error: { message: "Service not found" } });
     }
 
     // Get data from HestiaCP
