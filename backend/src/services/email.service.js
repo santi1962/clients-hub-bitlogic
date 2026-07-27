@@ -17,6 +17,11 @@ function getTransporter() {
         user: config.smtp.user,
         pass: config.smtp.pass,
       },
+      // Timeouts explícitos: sin esto, un mailbox que no responde puede
+      // dejar colgado el envío (y a quien lo esperó, ej. un request HTTP).
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 20_000,
     });
   }
   return transporter;

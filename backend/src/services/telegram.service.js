@@ -1,4 +1,7 @@
 import config from "../config/index.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("telegram");
 
 /**
  * Envía un mensaje al chat de Telegram configurado (staff).
@@ -16,12 +19,15 @@ export async function sendTelegramMessage(text) {
         text,
         parse_mode: "HTML",
       }),
+      // Sin timeout, un Telegram que no responde deja la promesa colgada
+      // indefinidamente (AbortSignal.timeout es nativo de Node, sin libs nuevas).
+      signal: AbortSignal.timeout(8_000),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      console.error(`[Telegram] Error al enviar mensaje: ${res.status} ${body}`);
+      log.error(`Error al enviar mensaje: ${res.status}`, { body });
     }
   } catch (err) {
-    console.error("[Telegram] Error de red al enviar mensaje:", err.message);
+    log.error("Error de red al enviar mensaje", { err });
   }
 }
