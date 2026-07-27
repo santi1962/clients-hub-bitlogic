@@ -5,11 +5,15 @@ import { initSocket, closeSocket } from "./socket.js";
 import config from "./config/index.js";
 import pool from "./db/pool.js";
 import { startWhatsApp } from "./services/whatsapp.service.js";
+import { initScheduler, stopScheduler, waitForRunningJobs } from "./services/scheduler-init.service.js";
 import { createLogger } from "./utils/logger.js";
 
 const log = createLogger("server");
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
+// Parte del presupuesto de SHUTDOWN_TIMEOUT_MS reservada para esperar a que
+// un job en curso termine, antes de cerrar el pool que ese job usa.
+const JOB_SHUTDOWN_WAIT_MS = 8_000;
 
 let httpServer = null;
 let shuttingDown = false;
@@ -45,6 +49,12 @@ async function start() {
   if (config.whatsapp.enabled) {
     startWhatsApp().catch((err) => log.error("Error al iniciar WhatsApp", { err }));
   }
+
+  // Se registra después de confirmar que Postgres responde (arriba) y de
+  // levantar el servidor HTTP — no dispara ninguna ejecución al arrancar,
+  // solo programa los próximos ticks de cron (o queda en modo solo-manual
+  // si SCHEDULER_ENABLED=false).
+  initScheduler();
 }
 
 /**
@@ -65,12 +75,27 @@ async function shutdown(signal) {
   forceExitTimer.unref();
 
   try {
+    // Primero: que no arranque ninguna ejecución nueva de cron.
+    stopScheduler();
+    log.info("Scheduler detenido (no se programan más ejecuciones)");
+
     if (httpServer?.listening) {
       httpServer.closeIdleConnections?.();
       await new Promise((resolve, reject) => {
         httpServer.close((err) => (err ? reject(err) : resolve()));
       });
       log.info("Servidor HTTP cerrado");
+    }
+
+    // Si un job (manual o programado) está a mitad de ejecución, darle
+    // tiempo acotado a terminar antes de cerrar el pool que usa.
+    const { settled, stillRunning } = await waitForRunningJobs(JOB_SHUTDOWN_WAIT_MS);
+    if (settled) {
+      log.info("Ningún job en ejecución al momento del apagado");
+    } else {
+      log.error(`Job(s) sin terminar tras ${JOB_SHUTDOWN_WAIT_MS}ms de espera, se continúa igual`, {
+        stillRunning,
+      });
     }
 
     await closeSocket();
