@@ -126,7 +126,7 @@ export async function addNotificationRecipient(req, res, next) {
     const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({ error: "email required" });
+      return res.status(400).json({ error: { message: "email required" } });
     }
 
     const updated = await automationSettingsService.addNotificationRecipient(
@@ -159,7 +159,7 @@ export async function removeNotificationRecipient(req, res, next) {
     const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({ error: "email required" });
+      return res.status(400).json({ error: { message: "email required" } });
     }
 
     const updated = await automationSettingsService.removeNotificationRecipient(

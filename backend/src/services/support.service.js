@@ -6,6 +6,12 @@ import pool from "../db/pool.js";
 import { getIo } from "../socket.js";
 import { sendTelegramMessage } from "./telegram.service.js";
 
+function ticketNotFound() {
+  const e = new Error("Ticket not found");
+  e.status = 404;
+  return e;
+}
+
 export const supportService = {
   /**
    * List tickets with filters
@@ -137,7 +143,7 @@ export const supportService = {
     const ticketResult = await pool.query(ticketQuery, [id]);
 
     if (ticketResult.rows.length === 0) {
-      throw new Error("Ticket not found");
+      throw ticketNotFound();
     }
 
     const ticket = ticketResult.rows[0];
@@ -212,7 +218,7 @@ export const supportService = {
     `;
 
     const result = await pool.query(query, values);
-    if (result.rows.length === 0) throw new Error("Ticket not found");
+    if (result.rows.length === 0) throw ticketNotFound();
 
     return result.rows[0];
   },
@@ -296,7 +302,7 @@ export const supportService = {
       RETURNING *
     `;
     const result = await pool.query(query, [assignedTo, id]);
-    if (result.rows.length === 0) throw new Error("Ticket not found");
+    if (result.rows.length === 0) throw ticketNotFound();
     return result.rows[0];
   },
 
@@ -311,7 +317,7 @@ export const supportService = {
       RETURNING *
     `;
     const result = await pool.query(query, [id]);
-    if (result.rows.length === 0) throw new Error("Ticket not found");
+    if (result.rows.length === 0) throw ticketNotFound();
     return result.rows[0];
   },
 
@@ -326,7 +332,7 @@ export const supportService = {
       RETURNING *
     `;
     const result = await pool.query(query, [id]);
-    if (result.rows.length === 0) throw new Error("Ticket not found");
+    if (result.rows.length === 0) throw ticketNotFound();
     return result.rows[0];
   },
 
@@ -338,6 +344,6 @@ export const supportService = {
       "DELETE FROM support_tickets WHERE id = $1 RETURNING id",
       [id],
     );
-    if (result.rows.length === 0) throw new Error("Ticket not found");
+    if (result.rows.length === 0) throw ticketNotFound();
   },
 };

@@ -1,20 +1,50 @@
 import "dotenv/config";
 
-const isProduction = process.env.NODE_ENV === "production";
+const KNOWN_NODE_ENVS = ["development", "production", "test"];
+const rawNodeEnv = process.env.NODE_ENV ?? "development";
+const isProduction = rawNodeEnv === "production";
+
+if (!KNOWN_NODE_ENVS.includes(rawNodeEnv)) {
+  // No es fatal: Express/Node siguen funcionando con cualquier string, pero
+  // un typo acá (ej. "produciton") hace que todas las validaciones de abajo
+  // se salteen en silencio, que es peor que arrancar en modo "development".
+  console.warn(
+    `[Config] NODE_ENV="${rawNodeEnv}" no es un valor esperado (${KNOWN_NODE_ENVS.join(", ")}). Se trata como "development".`,
+  );
+}
 
 const DEV_JWT_DEFAULTS = [
   "dev_access_secret_change_in_prod",
   "dev_refresh_secret_change_in_prod",
 ];
 
+/** Saca la barra final de una URL (evita "//" al concatenar paths). */
+function stripTrailingSlash(url) {
+  return url ? url.replace(/\/+$/, "") : url;
+}
+
+function parseBool(value, defaultValue) {
+  if (value === undefined) return defaultValue;
+  return value === "true";
+}
+
 // ── Validación de variables críticas ────────────────────────────
 // Falla de forma explícita en producción si faltan vars o siguen con valores dev.
+// No exige nada de integraciones opcionales (MP/Telegram/WhatsApp) salvo que
+// esa integración esté efectivamente habilitada.
 if (isProduction) {
   const missing = [];
 
   if (!process.env.DATABASE_URL) missing.push("DATABASE_URL");
   if (!process.env.JWT_ACCESS_SECRET) missing.push("JWT_ACCESS_SECRET");
   if (!process.env.JWT_REFRESH_SECRET) missing.push("JWT_REFRESH_SECRET");
+  if (!process.env.CORS_ORIGIN) missing.push("CORS_ORIGIN");
+  if (!process.env.FRONTEND_URL) missing.push("FRONTEND_URL");
+  // BACKEND_PUBLIC_URL solo hace falta si MercadoPago está configurado: es la
+  // URL que se le manda a MP para el webhook de notificación de pagos.
+  if (process.env.MP_ACCESS_TOKEN && !process.env.BACKEND_PUBLIC_URL) {
+    missing.push("BACKEND_PUBLIC_URL (requerido porque MP_ACCESS_TOKEN está configurado)");
+  }
 
   if (missing.length > 0) {
     console.error(`[Config] Variables de entorno requeridas faltantes: ${missing.join(", ")}`);
@@ -32,7 +62,7 @@ if (isProduction) {
 
 const config = {
   port: parseInt(process.env.PORT ?? "3001", 10),
-  nodeEnv: process.env.NODE_ENV ?? "development",
+  nodeEnv: KNOWN_NODE_ENVS.includes(rawNodeEnv) ? rawNodeEnv : "development",
 
   db: {
     connectionString: process.env.DATABASE_URL,
@@ -47,7 +77,9 @@ const config = {
   },
 
   cors: {
-    origin: (process.env.CORS_ORIGIN ?? "http://localhost:5173").split(",").map((o) => o.trim()),
+    origin: (process.env.CORS_ORIGIN ?? "http://localhost:5173")
+      .split(",")
+      .map((o) => stripTrailingSlash(o.trim())),
   },
 
   bcrypt: {
@@ -63,7 +95,14 @@ const config = {
     fromEmail: process.env.SMTP_FROM_EMAIL ?? "noreply@bitlogic.com.ar",
   },
 
-  frontendUrl: process.env.FRONTEND_URL ?? "http://localhost:5173",
+  frontendUrl: stripTrailingSlash(process.env.FRONTEND_URL ?? "http://localhost:5173"),
+
+  // URL pública del propio backend (para armar el webhook de MercadoPago).
+  // Antes se leía process.env.BACKEND_PUBLIC_URL directo en mercadopago.routes.js;
+  // ahora pasa por acá para quedar validado y normalizado en un solo lugar.
+  backendPublicUrl: process.env.BACKEND_PUBLIC_URL
+    ? stripTrailingSlash(process.env.BACKEND_PUBLIC_URL)
+    : null,
 
   mercadopago: {
     accessToken: process.env.MP_ACCESS_TOKEN ?? "",
@@ -71,10 +110,12 @@ const config = {
   },
 
   hestia: {
-    url: process.env.HESTIA_API_URL,
+    url: process.env.HESTIA_API_URL ? stripTrailingSlash(process.env.HESTIA_API_URL) : process.env.HESTIA_API_URL,
     username: process.env.HESTIA_USERNAME,
     password: process.env.HESTIA_PASSWORD,
     apiKey: process.env.HESTIA_API_KEY,
+    // Semántica "opt-out": true salvo que se ponga explícitamente "false".
+    // Un valor mal escrito (ej. "flase") no debe apagar la verificación SSL sin querer.
     verifySsl: process.env.HESTIA_VERIFY_SSL !== "false",
     useApiKey: !!process.env.HESTIA_API_KEY,
   },
@@ -86,8 +127,20 @@ const config = {
   },
 
   whatsapp: {
-    enabled: process.env.WHATSAPP_ENABLED === "true",
+    enabled: parseBool(process.env.WHATSAPP_ENABLED, false),
     sessionDir: process.env.WHATSAPP_SESSION_DIR ?? "./whatsapp-session",
+  },
+
+  scheduler: {
+    // Default: false en desarrollo, true en producción — salvo override explícito.
+    enabled: parseBool(process.env.SCHEDULER_ENABLED, isProduction),
+    timezone: process.env.SCHEDULER_TIMEZONE || "America/Argentina/Buenos_Aires",
+    // Horarios de producción, overrideables individualmente (ej. para pruebas).
+    schedules: {
+      hestiaSync: process.env.SCHEDULE_HESTIA_SYNC || "30 2 * * *",
+      delinquencyDetection: process.env.SCHEDULE_DELINQUENCY_DETECTION || "0 8 * * *",
+      paymentReminders: process.env.SCHEDULE_PAYMENT_REMINDERS || "0 9 * * *",
+    },
   },
 };
 

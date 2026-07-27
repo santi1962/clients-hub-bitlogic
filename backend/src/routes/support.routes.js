@@ -2,10 +2,9 @@
  * Support Tickets Routes
  */
 import express from "express";
-import multer from "multer";
+import rateLimit from "express-rate-limit";
 import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
 import {
   listTickets,
   getTicket,
@@ -19,19 +18,25 @@ import {
 } from "../controllers/support.controller.js";
 import { authRequired } from "../middlewares/authRequired.js";
 import { requireStaff } from "../middlewares/requireRole.js";
+import { ticketAttachmentUpload, ticketUploadsDir } from "../middlewares/ticketUpload.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadsDir = path.join(__dirname, "../../uploads/tickets");
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadsDir),
-  filename: (_req, file, cb) => {
-    const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const ext = path.extname(file.originalname);
-    cb(null, `${unique}${ext}`);
-  },
+// Límites razonables para no dejar que un usuario autenticado inunde el
+// servidor de tickets/mensajes/uploads. No aplica a lectura (GET).
+const createTicketLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { error: { message: "Demasiados tickets creados. Esperá unos minutos." } },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
-const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
+
+const ticketMessageLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 60,
+  message: { error: { message: "Demasiados mensajes enviados. Esperá unos minutos." } },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 const router = express.Router();
 
@@ -39,7 +44,7 @@ const router = express.Router();
 router.get("/", authRequired, listTickets);
 
 // Create ticket (staff + clients)
-router.post("/", authRequired, createTicket);
+router.post("/", authRequired, createTicketLimiter, createTicket);
 
 // Get single ticket
 router.get("/:id", authRequired, getTicket);
@@ -48,7 +53,7 @@ router.get("/:id", authRequired, getTicket);
 router.patch("/:id", authRequired, requireStaff, updateTicket);
 
 // Add message (supports file upload)
-router.post("/:id/messages", authRequired, upload.single("file"), addMessage);
+router.post("/:id/messages", authRequired, ticketMessageLimiter, ticketAttachmentUpload, addMessage);
 
 // Assign ticket (staff only)
 router.post("/:id/assign", authRequired, requireStaff, assignTicket);
@@ -70,7 +75,7 @@ router.get("/uploads/:filename", authRequired, requireStaff, async (req, res, ne
     if (safe !== filename || filename.includes("..")) {
       return res.status(400).json({ error: { message: "Nombre de archivo inválido" } });
     }
-    const filePath = path.join(__dirname, "../../uploads/tickets", safe);
+    const filePath = path.join(ticketUploadsDir, safe);
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: { message: "Archivo no encontrado" } });
     }

@@ -4,6 +4,12 @@
  */
 import pool from "../db/pool.js";
 
+function taskNotFound() {
+  const e = new Error("Task not found");
+  e.status = 404;
+  return e;
+}
+
 export const tasksService = {
   /**
    * List tasks with filters
@@ -175,7 +181,7 @@ export const tasksService = {
     const result = await pool.query(query, [id]);
 
     if (result.rows.length === 0) {
-      throw new Error("Task not found");
+      throw taskNotFound();
     }
 
     return result.rows[0];
@@ -249,7 +255,7 @@ export const tasksService = {
     `;
 
     const result = await pool.query(query, values);
-    if (result.rows.length === 0) throw new Error("Task not found");
+    if (result.rows.length === 0) throw taskNotFound();
 
     return result.rows[0];
   },
@@ -262,7 +268,7 @@ export const tasksService = {
       `DELETE FROM internal_tasks WHERE id = $1 RETURNING *`,
       [id],
     );
-    if (result.rows.length === 0) throw new Error("Task not found");
+    if (result.rows.length === 0) throw taskNotFound();
     return result.rows[0];
   },
 
@@ -277,7 +283,7 @@ export const tasksService = {
       RETURNING *
     `;
     const result = await pool.query(query, [id]);
-    if (result.rows.length === 0) throw new Error("Task not found");
+    if (result.rows.length === 0) throw taskNotFound();
     return result.rows[0];
   },
 
@@ -292,7 +298,7 @@ export const tasksService = {
       RETURNING *
     `;
     const result = await pool.query(query, [id]);
-    if (result.rows.length === 0) throw new Error("Task not found");
+    if (result.rows.length === 0) throw taskNotFound();
     return result.rows[0];
   },
 };

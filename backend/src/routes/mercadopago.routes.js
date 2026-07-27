@@ -1,21 +1,44 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { MercadoPagoConfig, Preference, Payment } from "mercadopago";
 import pool from "../db/pool.js";
 import config from "../config/index.js";
 import { authRequired } from "../middlewares/authRequired.js";
+import { createLogger } from "../utils/logger.js";
 
+const log = createLogger("mercadopago");
 const router = Router();
 
 function getMpClient() {
   if (!config.mercadopago.accessToken) {
-    throw new Error("MP_ACCESS_TOKEN no configurado");
+    const err = new Error("MercadoPago no está configurado todavía");
+    err.status = 503;
+    throw err;
   }
   return new MercadoPagoConfig({ accessToken: config.mercadopago.accessToken });
 }
 
+const checkoutLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: { message: "Demasiados intentos de pago. Esperá unos minutos." } },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// El webhook lo llama MercadoPago, no un usuario logueado — el límite es más
+// alto para tolerar reintentos legítimos de notificación sin frenar pagos reales.
+const webhookLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 120,
+  message: { error: { message: "Too many requests" } },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // ── POST /api/portal/payments/checkout/:noticeId
 // Crea una preferencia de pago en MP y devuelve la URL de checkout
-router.post("/checkout/:noticeId", authRequired, async (req, res, next) => {
+router.post("/checkout/:noticeId", authRequired, checkoutLimiter, async (req, res, next) => {
   try {
     if (!req.user.clientId) {
       return res.status(403).json({ error: { message: "Sin cliente asociado" } });
@@ -66,7 +89,7 @@ router.post("/checkout/:noticeId", authRequired, async (req, res, next) => {
           pending: `${config.frontendUrl}/portal/pago-pendiente`,
         },
         auto_return: "approved",
-        notification_url: `${process.env.BACKEND_PUBLIC_URL ?? config.frontendUrl}/api/webhooks/mercadopago`,
+        notification_url: `${config.backendPublicUrl ?? config.frontendUrl}/api/webhooks/mercadopago`,
         statement_descriptor: "BITLOGIC",
       },
     });
@@ -76,7 +99,19 @@ router.post("/checkout/:noticeId", authRequired, async (req, res, next) => {
 });
 
 // ── POST /api/webhooks/mercadopago  (montado en /api/webhooks como /mercadopago)
-router.post("/mercadopago", async (req, res) => {
+//
+// HALLAZGO DE SEGURIDAD PENDIENTE (no resuelto en esta fase de hardening,
+// requiere decisión externa): este webhook no verifica la firma
+// `x-signature`/`x-request-id` que MercadoPago envía junto al webhook
+// (ver https://www.mercadopago.com.ar/developers/es/docs/checkout-pro/additional-content/notifications/webhooks).
+// Hoy cualquiera que conozca esta URL puede simular una notificación de pago
+// aprobado. Mitigación parcial existente: se vuelve a consultar el pago real
+// contra la API de MercadoPago con el access token propio antes de acreditar
+// nada, así que un request falso no puede inventar un pago que no exista en
+// la cuenta de MercadoPago real — pero si un pago legítimo de OTRO aviso ya
+// existe, un atacante podría intentar reutilizar su `data.id` contra avisos
+// ajenos. Corregir esto es tarea de la próxima fase de seguridad, no de esta.
+router.post("/mercadopago", webhookLimiter, async (req, res) => {
   try {
     const { type, data } = req.body ?? {};
 
@@ -141,7 +176,7 @@ router.post("/mercadopago", async (req, res) => {
 
     res.sendStatus(200);
   } catch (err) {
-    console.error("[MercadoPago Webhook]", err.message);
+    log.error("Error procesando webhook de MercadoPago", { requestId: req.requestId, err });
     res.sendStatus(200); // Siempre 200 para que MP no reintente indefinidamente
   }
 });
