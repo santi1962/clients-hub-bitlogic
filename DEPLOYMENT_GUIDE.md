@@ -145,63 +145,86 @@ npm ci
 ## 🔐 FASE 4: CONFIGURACIÓN DE SECRETOS
 
 ### Paso 4.1: Crear .env backend (PRODUCCIÓN)
+
+**⚠️ Los nombres de variables de abajo son los que el código realmente lee**
+(`backend/src/config/index.js`). No inventes otros nombres (ej. `DB_HOST`,
+`JWT_SECRET`, `SMTP_FROM`) — el server arranca pero ignora silenciosamente
+cualquier variable que no coincida exacto con esta lista.
+
 ```bash
 cd /home/bitlogic/apps/bitlogic-client-hub/backend
 
-# Copiar template
-cp .env.production.example .env.production
+# Copiar template real del proyecto (NO un ejemplo genérico)
+cp .env.example .env
 
 # Editar con valores reales
-nano .env.production
+nano .env
 ```
 
-**Contenido .env.production:**
+**Contenido backend/.env (nombres reales, ver backend/.env.example):**
 ```env
 # Server
 NODE_ENV=production
 PORT=3001
-HOST=0.0.0.0
 
-# Database
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=bitlogic_prod
-DB_USER=bitlogic_user
-DB_PASSWORD=CONTRASEÑA_SEGURA_AQUÍ
-DB_POOL_SIZE=20
+# Database — connection string única, no variables sueltas
+DATABASE_URL=postgresql://bitlogic_user:CONTRASEÑA_SEGURA@localhost:5432/bitlogic_prod
 
-# JWT
-JWT_SECRET=CLAVE_SECRETA_LARGA_AQUÍ
-JWT_EXPIRES_IN=15m
-REFRESH_TOKEN_SECRET=OTRA_CLAVE_SECRETA_AQUÍ
-REFRESH_TOKEN_EXPIRES_IN=7d
+# JWT — generar con: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+JWT_ACCESS_SECRET=CLAVE_SECRETA_LARGA_AQUI
+JWT_REFRESH_SECRET=OTRA_CLAVE_SECRETA_AQUI
+JWT_ACCESS_EXPIRY=15m
+JWT_REFRESH_EXPIRY=30d
+JWT_REFRESH_EXPIRY_SHORT=1d
 
-# Email (Nodemailer)
-SMTP_HOST=smtp.gmail.com
+# CORS — dominio real del frontend
+CORS_ORIGIN=https://clientes.bitlogic.com.ar
+
+# Email — mailbox propia en bitlogic.com.ar, servida por el mismo HestiaCP.
+# 1. Hestia > Mail > bitlogic.com.ar > Add Account (ej. "noreply")
+# 2. La contraseña que le pongas ahí va en SMTP_PASS
+# 3. Confirmá el hostname del mail server en Hestia > Mail (normalmente
+#    mail.bitlogic.com.ar; si no existe, usá el hostname del server, ej. srv01.bitlogic.com.ar)
+# 4. Activá/confirmá DKIM y SPF en Hestia para bitlogic.com.ar, o los avisos
+#    de pago van a terminar en spam de tus clientes
+SMTP_HOST=mail.bitlogic.com.ar
 SMTP_PORT=587
-SMTP_USER=tu-email@gmail.com
-SMTP_PASSWORD=tu-app-password
-SMTP_FROM=noreply@bitlogic.com.ar
+SMTP_USER=noreply@bitlogic.com.ar
+SMTP_PASS=tu-password-del-buzon-de-hestia
+SMTP_FROM_NAME=Bitlogic
+SMTP_FROM_EMAIL=noreply@bitlogic.com.ar
 
-# Frontend URL
+# URLs públicas
 FRONTEND_URL=https://clientes.bitlogic.com.ar
+BACKEND_PUBLIC_URL=https://api-clientes.bitlogic.com.ar
 
-# Hestia
-HESTIA_URL=https://tu-hestia-url.com
-HESTIA_USER=admin-user
-HESTIA_PASS=admin-password
+# HestiaCP (solo lectura)
+HESTIA_API_URL=https://panel.bitlogic.com.ar:8083
+HESTIA_API_KEY=tu-api-key-de-hestia
+HESTIA_VERIFY_SSL=true
 
-# App
-APP_NAME=Bitlogic Client Hub
-APP_VERSION=1.0.0
-LOG_LEVEL=info
+# MercadoPago — checkout de clientes + webhook de pagos
+MP_ACCESS_TOKEN=APP_USR-tu-access-token-de-produccion
+
+# Telegram — avisos al staff de tickets nuevos (ver instrucciones en .env.example)
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+
+# WhatsApp (Baileys) — recordatorios de pago a clientes. Se activa y se vincula
+# por QR desde /automatizaciones una vez que el server esté corriendo.
+WHATSAPP_ENABLED=false
+WHATSAPP_SESSION_DIR=./whatsapp-session
 ```
 
 **⚠️ IMPORTANTE:**
 - Usar contraseñas SEGURAS y COMPLEJAS
-- Generar con: `openssl rand -base64 32`
-- Nunca compartir estos valores
-- Backup de .env.production en lugar seguro
+- Generar secrets con: `openssl rand -base64 32`
+- Nunca compartir estos valores ni commitearlos a git
+- Backup de `.env` en lugar seguro (fuera del repo)
+- Sin `SMTP_USER`/`SMTP_PASS` reales, todo envío de email falla en silencio con
+  "SMTP not configured" — probalo con `POST /api/email/test` antes de dar por
+  terminado el deploy
+- Sin `MP_ACCESS_TOKEN`, el checkout de MercadoPago tira error al crear la preferencia
 
 ### Paso 4.2: Crear .env frontend (PRODUCCIÓN)
 ```bash
@@ -276,55 +299,16 @@ ls -la dist/
 
 ## 🔄 FASE 7: PM2 (PROCESS MANAGER)
 
-### Paso 7.1: Crear ecosystem.config.js
+### Paso 7.1: Usar el ecosystem.config.js del repo
+El repo ya trae `ecosystem.config.js` en la raíz, correcto y completo (backend +
+frontend, ambos en modo `fork` con 1 instancia — importante: **no** cambiar a
+`cluster`/`instances: max` para el backend, porque el chat de tickets usa
+Socket.IO en memoria y varios workers sin Redis compartido pierden mensajes
+al azar entre clientes). Solo hace falta crear la carpeta de logs:
+
 ```bash
 cd /home/bitlogic/apps/bitlogic-client-hub
-
-cat > ecosystem.config.js << 'EOF'
-module.exports = {
-  apps: [
-    {
-      name: 'bitlogic-backend',
-      script: './backend/src/server.js',
-      cwd: '/home/bitlogic/apps/bitlogic-client-hub',
-      instances: 'max',
-      exec_mode: 'cluster',
-      env: {
-        NODE_ENV: 'production',
-        PORT: 3001
-      },
-      error_file: './logs/backend-error.log',
-      out_file: './logs/backend-out.log',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      merge_logs: true,
-      autorestart: true,
-      watch: false,
-      max_memory_restart: '500M',
-      ignore_watch: ['node_modules', 'dist', 'logs'],
-      env_production: {
-        NODE_ENV: 'production',
-        PORT: 3001
-      }
-    },
-    {
-      name: 'bitlogic-frontend',
-      script: './dist/server/index.js',
-      cwd: '/home/bitlogic/apps/bitlogic-client-hub',
-      instances: 1,
-      exec_mode: 'fork',
-      env: {
-        NODE_ENV: 'production',
-        PORT: 3000
-      },
-      error_file: './logs/frontend-error.log',
-      out_file: './logs/frontend-out.log',
-      autorestart: true,
-      watch: false,
-      max_memory_restart: '300M'
-    }
-  ]
-};
-EOF
+mkdir -p logs
 ```
 
 ### Paso 7.2: Iniciar con PM2

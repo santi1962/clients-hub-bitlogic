@@ -1,6 +1,8 @@
 # Bitlogic Client Hub
 
-SaaS portal para gestión integral de hosting, dominios, pagos y soporte. Stack: React 19 + TanStack + Tailwind CSS + Node.js + Express + PostgreSQL.
+Sistema interno de Bitlogic (empresa de hosting) para gestionar clientes, servicios de hosting, dominios, facturación/cobranza, soporte y tareas, más un portal separado donde los clientes finales ven sus propios datos y pagan. Uso privado de Bitlogic — no es un producto multi-tenant.
+
+**Documentación vigente:** [`docs/PRODUCTION_STATUS.md`](docs/PRODUCTION_STATUS.md) (estado funcional e integraciones, fuente de verdad) y [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) (guía de deploy). Todo lo que esté en `docs/archive/` es documentación histórica de sesiones de desarrollo anteriores — **no usarla como referencia**, puede estar desactualizada o contradecir el código real.
 
 ---
 
@@ -8,20 +10,20 @@ SaaS portal para gestión integral de hosting, dominios, pagos y soporte. Stack:
 
 | Capa | Tecnología |
 |------|-----------|
-| **Frontend** | React 19, TanStack Router, TanStack Query, Tailwind CSS, shadcn/ui |
-| **Backend** | Node.js 18+, Express, PostgreSQL 13+ |
-| **Auth** | JWT (accessToken 15min + httpOnly refreshToken 30d) |
-| **Queries** | React Query with optimistic updates |
-| **API** | REST con response format consistente |
+| **Frontend** | React 19, TanStack Start (SSR) + TanStack Router/Query, Tailwind CSS, shadcn/ui |
+| **Backend** | Node.js 18+ (ESM), Express, PostgreSQL (SQL directo, sin ORM) |
+| **Auth** | JWT (accessToken 15min en memoria + refreshToken httpOnly 30d) |
+| **Tiempo real** | Socket.IO (chat de tickets) — requiere backend en 1 sola instancia (fork), nunca cluster |
+| **Procesos** | PM2 vía `ecosystem.config.js` (raíz) — `bitlogic-backend` + `bitlogic-frontend`, ambas fork/1 instancia |
+| **Gestor de paquetes** | npm (único soportado — ver `packageManager` en `package.json`) |
 
 ---
 
-## 🚀 Instalación
+## 🚀 Cómo levantarlo en local
 
 ### Frontend
 
 ```bash
-cd .  # ya en raíz del proyecto
 npm install
 cp .env.example .env.local  # opcional, defaults a http://localhost:3001/api
 npm run dev  # http://localhost:5173
@@ -37,89 +39,66 @@ VITE_API_BASE_URL=http://localhost:3001/api
 ```bash
 cd backend
 npm install
-cp .env.example .env  # REQUERIDO para DB y JWT secrets
+cp .env.example .env  # REQUERIDO: completar DB, JWT secrets, SMTP, etc.
 npm run migrate      # Ejecuta migraciones en orden
-npm run seed         # Inserta datos iniciales (idempotente)
+npm run seed         # Inserta datos de DEMO (ver advertencia abajo)
 npm start            # http://localhost:3001
 ```
 
-**Variables de entorno** (`.env`):
+**Variables de entorno** (`.env`): ver `backend/.env.example` para la lista completa (incluye DB, JWT, SMTP, MercadoPago, Telegram, WhatsApp).
+
+> ⚠️ **`npm run seed` carga datos de DEMO ficticios (clientes, servicios, pagos de prueba). No ejecutarlo nunca contra la base de datos de producción.** Para producción, la base real se migra con `pg_dump`/`pg_restore`, no se siembra desde cero.
+
+---
+
+## 🗂️ Estructura del repo
+
 ```
-DATABASE_URL=postgresql://user:pass@localhost:5432/bitlogic
-JWT_ACCESS_SECRET=<generar: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))">
-JWT_REFRESH_SECRET=<generar: mismo comando, diferente valor>
-CORS_ORIGIN=http://localhost:5173
-PORT=3001
-NODE_ENV=development
+/                     # Frontend (React + TanStack Start)
+├── src/
+│   ├── routes/       # Rutas (file-based routing de TanStack Router)
+│   ├── components/   # Componentes UI
+│   └── lib/          # api-client, queries, mappers, auth, utils
+├── backend/          # Backend (Express + PostgreSQL)
+│   ├── src/
+│   │   ├── controllers/
+│   │   ├── services/
+│   │   ├── routes/
+│   │   ├── middlewares/
+│   │   ├── migrations/       # Migraciones SQL numeradas
+│   │   ├── db/migrate.js     # Runner de migraciones
+│   │   └── seeds/            # Seeds de demo, numerados
+│   └── uploads/ / whatsapp-session/ / backups/   # Datos persistentes (ignorados por git)
+└── docs/
+    ├── PRODUCTION_STATUS.md   # Estado funcional vigente
+    └── archive/                # Documentación histórica (no usar como referencia)
 ```
 
 ---
 
-## 📊 Migraciones y Seeds (Orden)
+## 📊 Migraciones y Seeds
 
-| # | Migración | Seed | Datos |
-|---|-----------|------|-------|
-| 1 | `001_auth_schema.sql` | `001_admin_seed.js` | Admin user |
-| 2 | `002_core_hosting_schema.sql` | `002_core_hosting_seed.js` | Clientes, planes, servicios |
-| 3 | `003_billing_schema.sql` | `003_billing_seed.js` | Pagos, avisos |
-| 4 | `004_domains_schema.sql` | `004_domains_seed.js` | 12 dominios |
-| 5 | `005_support_schema.sql` | `005_support_seed.js` | 5 tickets |
-| 6 | — | `006_client_users_seed.js` | 4 usuarios cliente |
-| 6 | `006_tasks_schema.sql` | `007_tasks_seed.js` | 12 tareas |
+Migraciones SQL numeradas en `backend/src/migrations/` (001 a 016 — auth, hosting, billing, dominios, soporte, tareas, email logs, auditoría, scheduler, automatizaciones, settings, notificaciones, plantillas de email, backups, reset de contraseña). Se ejecutan en orden numérico y son idempotentes (`CREATE TABLE IF NOT EXISTS`, etc.). Seeds de demo numerados en `backend/src/seeds/`.
 
-**Ejecutar**:
 ```bash
-npm run migrate  # corre todas las migraciones en orden
-npm run seed     # corre todos los seeds (idempotente, ON CONFLICT DO NOTHING)
+npm run migrate  # corre todas las migraciones en orden (idempotentes)
+npm run seed     # corre todos los seeds de DEMO (idempotente, ON CONFLICT DO NOTHING)
 ```
 
 ---
 
-## 👥 Usuarios de Prueba
-
-### Staff
+## 👥 Usuarios de Prueba (seed de demo)
 
 | Email | Password | Rol |
 |-------|----------|-----|
 | `admin@bitlogic.com.ar` | `Cambiar123!` | super_admin |
-
-### Clientes
-
-| Email | Password | Rol | ClientId |
-|-------|----------|-----|----------|
-| `cliente1@bitlogic.test` | `Cambiar123!` | cliente | `222...0001` |
-| `cliente2@bitlogic.test` | `Cambiar123!` | cliente | `222...0002` |
-| `cliente3@bitlogic.test` | `Cambiar123!` | cliente | `222...0003` |
-| `cliente4@bitlogic.test` | `Cambiar123!` | cliente | `222...0004` |
+| `cliente1@bitlogic.test` … `cliente4@bitlogic.test` | `Cambiar123!` | cliente |
 
 ---
 
-## 📍 Módulos Reales (Backend + Frontend)
+## 📍 Módulos
 
-### Conectados (100%)
-
-| Módulo | Backend | Frontend | Portal |
-|--------|---------|----------|--------|
-| **Auth** | ✅ JWT + refresh | ✅ | ✅ |
-| **Clientes** | ✅ CRUD + filtros | ✅ tabla + detalle | — |
-| **Planes** | ✅ list | ✅ select | — |
-| **Servicios** | ✅ CRUD + cambiar plan | ✅ tabla + detalle | ✅ lista |
-| **Dominios** | ✅ CRUD + renovar | ✅ tabla + detalle | ✅ lista |
-| **Pagos** | ✅ registrar + marcar pagado | ✅ tabla + resumen | ✅ lista |
-| **Avisos** | ✅ CRUD + generar + enviar | ✅ tabla + detalle | ✅ lista |
-| **Tickets** | ✅ CRUD + mensajes + resolve/close | ✅ tabla + detalle | ✅ lista |
-| **Tareas** | ✅ CRUD + complete/reopen | ✅ tabla + detalle | — |
-| **Dashboard** | ✅ admin KPIs | ✅ | — |
-
-### Aún en Mock
-
-| Módulo | Estado |
-|--------|--------|
-| **Tareas (portal cliente)** | Mock (staff-only en backend) |
-| **Automatizaciones** | Mock |
-| **Notificaciones** | Mock |
-| **Email real** | Mock (placeholder en seed) |
-| **Chat en tiempo real** | Mock (no WebSocket) |
+Estado funcional detallado por módulo (qué está conectado end-to-end, qué depende de una credencial externa pendiente): ver **[`docs/PRODUCTION_STATUS.md`](docs/PRODUCTION_STATUS.md)**. No se mantiene una segunda copia de esa tabla acá para evitar que queden desactualizadas entre sí.
 
 ---
 
@@ -131,58 +110,17 @@ npm run seed     # corre todos los seeds (idempotente, ON CONFLICT DO NOTHING)
 | `/api/tasks` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `/api/support` | ✅ | ✅ | ✅ | ✅ | ✅ (propios) |
 | `/api/domains` | ✅ | ✅ | ✅ | ✅ | ✅ (propios) |
-| `/portal/*` | ✅ (demo) | ✅ (demo) | ✅ (demo) | ✅ (demo) | ✅ (real) |
+| `/portal/*` | — | — | — | ❌ (sin `clientId` → redirige) | ✅ (real) |
 
-**Portal cliente**:
-- Cliente debe tener `user.clientId`
-- Ve solo datos propios
-- Staff sin `clientId` en PROD → denegado (DEMO_CLIENT_ID solo en DEV)
-
----
-
-## 🧪 Validaciones Backend Implementadas
-
-- ✅ Email válido en auth
-- ✅ Montos positivos en pagos
-- ✅ Fechas válidas
-- ✅ Status válidos (enum CHECK)
-- ✅ Relaciones existentes (FK)
-- ✅ No crear servicio para cliente inactivo
-- ✅ No crear aviso para servicio cancelado
-- ✅ No registrar pago <= 0
-- ✅ Soft delete (status → cancelled)
-- ✅ Ticket numbers únicos (secuencia SQL)
+**Portal cliente**: requiere `user.clientId` (asignado al crear el acceso de portal). Staff sin `clientId` es redirigido a `/clientes` con un aviso — no hay bypass de demo en ningún ambiente.
 
 ---
 
 ## 📡 API Response Format
 
-### Listas
-```json
-{
-  "data": [...],
-  "meta": { "page": 1, "limit": 20, "total": 100 }
-}
-```
-
-### Detalle
-```json
-{
-  "id": "...",
-  "name": "...",
-  ...
-}
-```
-
-### Errores
-```json
-{
-  "error": {
-    "message": "...",
-    "code": "INVALID_REQUEST"
-  }
-}
-```
+**Listas**: `{ "data": [...], "meta": { "page": 1, "limit": 20, "total": 100 } }`
+**Detalle**: objeto plano `{ "id": "...", ... }`
+**Errores**: `{ "error": { "message": "...", "code": "INVALID_REQUEST" } }`
 
 ---
 
@@ -192,66 +130,23 @@ npm run seed     # corre todos los seeds (idempotente, ON CONFLICT DO NOTHING)
 ```bash
 npm run dev        # dev server con hot reload
 npm run build      # build para producción
-npm run build:dev  # build en modo desarrollo
 npm run preview    # preview del build
 npm run lint       # ESLint (con --fix)
 ```
 
 ### Backend
 ```bash
-npm run migrate    # ejecutar migraciones
-npm run seed       # ejecutar seeds
-npm start          # servidor en http://localhost:3001
 npm run dev        # dev con nodemon
-npm run lint       # ESLint
+npm start          # servidor en http://localhost:3001
+npm run migrate    # ejecutar migraciones
+npm run seed       # ejecutar seeds de DEMO (no usar en producción)
+npm run clear-demo-data  # borrar datos de demo
 ```
 
 ---
 
-## 📋 Checklist de Desarrollo
+## 📞 Soporte
 
-### Antes de hacer merge a main
-
-- [ ] `npm run build` sin errores
-- [ ] `npm run lint` sin errores críticos
-- [ ] Backend `npm run migrate && npm run seed` desde DB vacía
-- [ ] Frontend loguea como admin y cliente
-- [ ] Portal cliente accede con clientId real
-- [ ] Invalidaciones de React Query funcionan
-- [ ] Loading/error/empty states en todas las páginas
-- [ ] Toasts en mutations
-- [ ] Roles y permisos correctos
-
----
-
-## 🚨 Estado Conocido
-
-### Problemas Solucionados (Fase 4A)
-
-✅ Frontend build sin TypeScript errors
-✅ Backend migrations y seeds idempotentes
-✅ Seguridad de roles verificada
-✅ Portal cliente sin DEMO_CLIENT_ID en PROD
-✅ API consistency (meta format)
-✅ Validaciones backend implementadas
-
-### Pendientes para Fases Futuras
-
-- Integraciones externas: Hestia CP, MercadoPago, PayPal
-- Email real (SendGrid/Resend)
-- Chat en tiempo real (WebSocket)
-- Automatizaciones con workflows
-- Notificaciones push/browser
-
----
-
-## 📞 Support
-
-- **Backend README**: [backend/README.md](backend/README.md)
-- **Frontend package.json**: scripts disponibles
-- **Bugs/Issues**: Crear en GitHub con contexto completo
-
----
-
-**Última actualización:** Fase 4A (Hardening General)  
-**Stack verificado:** ✅ Build + Lint + Migrations + Seeds + Security + API Consistency
+- Estado funcional e integraciones: [`docs/PRODUCTION_STATUS.md`](docs/PRODUCTION_STATUS.md)
+- Deploy: [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md)
+- Documentación histórica (no vigente): `docs/archive/`
