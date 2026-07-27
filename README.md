@@ -71,6 +71,7 @@ npm start            # http://localhost:3001
 │   └── uploads/ / whatsapp-session/ / backups/   # Datos persistentes (ignorados por git)
 └── docs/
     ├── PRODUCTION_STATUS.md   # Estado funcional vigente
+    ├── SCHEDULER.md           # Automatizaciones: horarios, cron, logs
     └── archive/                # Documentación histórica (no usar como referencia)
 ```
 
@@ -148,5 +149,6 @@ npm run clear-demo-data  # borrar datos de demo
 ## 📞 Soporte
 
 - Estado funcional e integraciones: [`docs/PRODUCTION_STATUS.md`](docs/PRODUCTION_STATUS.md)
+- Automatizaciones/scheduler: [`docs/SCHEDULER.md`](docs/SCHEDULER.md)
 - Deploy: [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md)
 - Documentación histórica (no vigente): `docs/archive/`
