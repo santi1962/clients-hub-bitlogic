@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SetupInicialRouteImport } from './routes/setup-inicial'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as RecuperarRouteImport } from './routes/recuperar'
 import { Route as PortalRouteImport } from './routes/portal'
 import { Route as LoginRouteImport } from './routes/login'
@@ -18,6 +19,9 @@ import { Route as PortalIndexRouteImport } from './routes/portal.index'
 import { Route as AdminIndexRouteImport } from './routes/_admin.index'
 import { Route as PortalTicketsRouteImport } from './routes/portal.tickets'
 import { Route as PortalPagosRouteImport } from './routes/portal.pagos'
+import { Route as PortalPagoPendienteRouteImport } from './routes/portal.pago-pendiente'
+import { Route as PortalPagoFallidoRouteImport } from './routes/portal.pago-fallido'
+import { Route as PortalPagoExitosoRouteImport } from './routes/portal.pago-exitoso'
 import { Route as PortalDominiosRouteImport } from './routes/portal.dominios'
 import { Route as PortalDatosRouteImport } from './routes/portal.datos'
 import { Route as PortalAvisosRouteImport } from './routes/portal.avisos'
@@ -45,8 +49,13 @@ import { Route as AdminAvisosRouteImport } from './routes/_admin.avisos'
 import { Route as AdminAutomatizacionesRouteImport } from './routes/_admin.automatizaciones'
 import { Route as AdminAuditoriaRouteImport } from './routes/_admin.auditoria'
 import { Route as AdminArquitecturaRouteImport } from './routes/_admin.arquitectura'
+import { Route as PortalTicketsIndexRouteImport } from './routes/portal.tickets.index'
+import { Route as AdminTareasIndexRouteImport } from './routes/_admin.tareas.index'
+import { Route as AdminSoporteIndexRouteImport } from './routes/_admin.soporte.index'
 import { Route as AdminServiciosIndexRouteImport } from './routes/_admin.servicios.index'
 import { Route as AdminClientesIndexRouteImport } from './routes/_admin.clientes.index'
+import { Route as PortalTicketsNuevoRouteImport } from './routes/portal.tickets.nuevo'
+import { Route as PortalTicketsIdRouteImport } from './routes/portal.tickets.$id'
 import { Route as AdminTareasIdRouteImport } from './routes/_admin.tareas.$id'
 import { Route as AdminSoporteNuevoRouteImport } from './routes/_admin.soporte.nuevo'
 import { Route as AdminSoporteIdRouteImport } from './routes/_admin.soporte.$id'
@@ -57,6 +66,11 @@ import { Route as AdminClientesIdRouteImport } from './routes/_admin.clientes.$i
 const SetupInicialRoute = SetupInicialRouteImport.update({
   id: '/setup-inicial',
   path: '/setup-inicial',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RecuperarRoute = RecuperarRouteImport.update({
@@ -96,6 +110,21 @@ const PortalTicketsRoute = PortalTicketsRouteImport.update({
 const PortalPagosRoute = PortalPagosRouteImport.update({
   id: '/pagos',
   path: '/pagos',
+  getParentRoute: () => PortalRoute,
+} as any)
+const PortalPagoPendienteRoute = PortalPagoPendienteRouteImport.update({
+  id: '/pago-pendiente',
+  path: '/pago-pendiente',
+  getParentRoute: () => PortalRoute,
+} as any)
+const PortalPagoFallidoRoute = PortalPagoFallidoRouteImport.update({
+  id: '/pago-fallido',
+  path: '/pago-fallido',
+  getParentRoute: () => PortalRoute,
+} as any)
+const PortalPagoExitosoRoute = PortalPagoExitosoRouteImport.update({
+  id: '/pago-exitoso',
+  path: '/pago-exitoso',
   getParentRoute: () => PortalRoute,
 } as any)
 const PortalDominiosRoute = PortalDominiosRouteImport.update({
@@ -233,6 +262,21 @@ const AdminArquitecturaRoute = AdminArquitecturaRouteImport.update({
   path: '/arquitectura',
   getParentRoute: () => AdminRoute,
 } as any)
+const PortalTicketsIndexRoute = PortalTicketsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PortalTicketsRoute,
+} as any)
+const AdminTareasIndexRoute = AdminTareasIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminTareasRoute,
+} as any)
+const AdminSoporteIndexRoute = AdminSoporteIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminSoporteRoute,
+} as any)
 const AdminServiciosIndexRoute = AdminServiciosIndexRouteImport.update({
   id: '/servicios/',
   path: '/servicios/',
@@ -242,6 +286,16 @@ const AdminClientesIndexRoute = AdminClientesIndexRouteImport.update({
   id: '/clientes/',
   path: '/clientes/',
   getParentRoute: () => AdminRoute,
+} as any)
+const PortalTicketsNuevoRoute = PortalTicketsNuevoRouteImport.update({
+  id: '/nuevo',
+  path: '/nuevo',
+  getParentRoute: () => PortalTicketsRoute,
+} as any)
+const PortalTicketsIdRoute = PortalTicketsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => PortalTicketsRoute,
 } as any)
 const AdminTareasIdRoute = AdminTareasIdRouteImport.update({
   id: '/$id',
@@ -279,6 +333,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/portal': typeof PortalRouteWithChildren
   '/recuperar': typeof RecuperarRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/setup-inicial': typeof SetupInicialRoute
   '/arquitectura': typeof AdminArquitecturaRoute
   '/auditoria': typeof AdminAuditoriaRoute
@@ -307,8 +362,11 @@ export interface FileRoutesByFullPath {
   '/portal/avisos': typeof PortalAvisosRoute
   '/portal/datos': typeof PortalDatosRoute
   '/portal/dominios': typeof PortalDominiosRoute
+  '/portal/pago-exitoso': typeof PortalPagoExitosoRoute
+  '/portal/pago-fallido': typeof PortalPagoFallidoRoute
+  '/portal/pago-pendiente': typeof PortalPagoPendienteRoute
   '/portal/pagos': typeof PortalPagosRoute
-  '/portal/tickets': typeof PortalTicketsRoute
+  '/portal/tickets': typeof PortalTicketsRouteWithChildren
   '/portal/': typeof PortalIndexRoute
   '/clientes/$id': typeof AdminClientesIdRoute
   '/dominios/$id': typeof AdminDominiosIdRoute
@@ -316,12 +374,18 @@ export interface FileRoutesByFullPath {
   '/soporte/$id': typeof AdminSoporteIdRoute
   '/soporte/nuevo': typeof AdminSoporteNuevoRoute
   '/tareas/$id': typeof AdminTareasIdRoute
+  '/portal/tickets/$id': typeof PortalTicketsIdRoute
+  '/portal/tickets/nuevo': typeof PortalTicketsNuevoRoute
   '/clientes/': typeof AdminClientesIndexRoute
   '/servicios/': typeof AdminServiciosIndexRoute
+  '/soporte/': typeof AdminSoporteIndexRoute
+  '/tareas/': typeof AdminTareasIndexRoute
+  '/portal/tickets/': typeof PortalTicketsIndexRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/recuperar': typeof RecuperarRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/setup-inicial': typeof SetupInicialRoute
   '/arquitectura': typeof AdminArquitecturaRoute
   '/auditoria': typeof AdminAuditoriaRoute
@@ -343,15 +407,15 @@ export interface FileRoutesByTo {
   '/perfil': typeof AdminPerfilRoute
   '/planes': typeof AdminPlanesRoute
   '/plantillas': typeof AdminPlantillasRoute
-  '/soporte': typeof AdminSoporteRouteWithChildren
-  '/tareas': typeof AdminTareasRouteWithChildren
   '/usuarios': typeof AdminUsuariosRoute
   '/workflows': typeof AdminWorkflowsRoute
   '/portal/avisos': typeof PortalAvisosRoute
   '/portal/datos': typeof PortalDatosRoute
   '/portal/dominios': typeof PortalDominiosRoute
+  '/portal/pago-exitoso': typeof PortalPagoExitosoRoute
+  '/portal/pago-fallido': typeof PortalPagoFallidoRoute
+  '/portal/pago-pendiente': typeof PortalPagoPendienteRoute
   '/portal/pagos': typeof PortalPagosRoute
-  '/portal/tickets': typeof PortalTicketsRoute
   '/': typeof AdminIndexRoute
   '/portal': typeof PortalIndexRoute
   '/clientes/$id': typeof AdminClientesIdRoute
@@ -360,8 +424,13 @@ export interface FileRoutesByTo {
   '/soporte/$id': typeof AdminSoporteIdRoute
   '/soporte/nuevo': typeof AdminSoporteNuevoRoute
   '/tareas/$id': typeof AdminTareasIdRoute
+  '/portal/tickets/$id': typeof PortalTicketsIdRoute
+  '/portal/tickets/nuevo': typeof PortalTicketsNuevoRoute
   '/clientes': typeof AdminClientesIndexRoute
   '/servicios': typeof AdminServiciosIndexRoute
+  '/soporte': typeof AdminSoporteIndexRoute
+  '/tareas': typeof AdminTareasIndexRoute
+  '/portal/tickets': typeof PortalTicketsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -369,6 +438,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/portal': typeof PortalRouteWithChildren
   '/recuperar': typeof RecuperarRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/setup-inicial': typeof SetupInicialRoute
   '/_admin/arquitectura': typeof AdminArquitecturaRoute
   '/_admin/auditoria': typeof AdminAuditoriaRoute
@@ -397,8 +467,11 @@ export interface FileRoutesById {
   '/portal/avisos': typeof PortalAvisosRoute
   '/portal/datos': typeof PortalDatosRoute
   '/portal/dominios': typeof PortalDominiosRoute
+  '/portal/pago-exitoso': typeof PortalPagoExitosoRoute
+  '/portal/pago-fallido': typeof PortalPagoFallidoRoute
+  '/portal/pago-pendiente': typeof PortalPagoPendienteRoute
   '/portal/pagos': typeof PortalPagosRoute
-  '/portal/tickets': typeof PortalTicketsRoute
+  '/portal/tickets': typeof PortalTicketsRouteWithChildren
   '/_admin/': typeof AdminIndexRoute
   '/portal/': typeof PortalIndexRoute
   '/_admin/clientes/$id': typeof AdminClientesIdRoute
@@ -407,8 +480,13 @@ export interface FileRoutesById {
   '/_admin/soporte/$id': typeof AdminSoporteIdRoute
   '/_admin/soporte/nuevo': typeof AdminSoporteNuevoRoute
   '/_admin/tareas/$id': typeof AdminTareasIdRoute
+  '/portal/tickets/$id': typeof PortalTicketsIdRoute
+  '/portal/tickets/nuevo': typeof PortalTicketsNuevoRoute
   '/_admin/clientes/': typeof AdminClientesIndexRoute
   '/_admin/servicios/': typeof AdminServiciosIndexRoute
+  '/_admin/soporte/': typeof AdminSoporteIndexRoute
+  '/_admin/tareas/': typeof AdminTareasIndexRoute
+  '/portal/tickets/': typeof PortalTicketsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -417,6 +495,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/portal'
     | '/recuperar'
+    | '/reset-password'
     | '/setup-inicial'
     | '/arquitectura'
     | '/auditoria'
@@ -445,6 +524,9 @@ export interface FileRouteTypes {
     | '/portal/avisos'
     | '/portal/datos'
     | '/portal/dominios'
+    | '/portal/pago-exitoso'
+    | '/portal/pago-fallido'
+    | '/portal/pago-pendiente'
     | '/portal/pagos'
     | '/portal/tickets'
     | '/portal/'
@@ -454,12 +536,18 @@ export interface FileRouteTypes {
     | '/soporte/$id'
     | '/soporte/nuevo'
     | '/tareas/$id'
+    | '/portal/tickets/$id'
+    | '/portal/tickets/nuevo'
     | '/clientes/'
     | '/servicios/'
+    | '/soporte/'
+    | '/tareas/'
+    | '/portal/tickets/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
     | '/recuperar'
+    | '/reset-password'
     | '/setup-inicial'
     | '/arquitectura'
     | '/auditoria'
@@ -481,15 +569,15 @@ export interface FileRouteTypes {
     | '/perfil'
     | '/planes'
     | '/plantillas'
-    | '/soporte'
-    | '/tareas'
     | '/usuarios'
     | '/workflows'
     | '/portal/avisos'
     | '/portal/datos'
     | '/portal/dominios'
+    | '/portal/pago-exitoso'
+    | '/portal/pago-fallido'
+    | '/portal/pago-pendiente'
     | '/portal/pagos'
-    | '/portal/tickets'
     | '/'
     | '/portal'
     | '/clientes/$id'
@@ -498,14 +586,20 @@ export interface FileRouteTypes {
     | '/soporte/$id'
     | '/soporte/nuevo'
     | '/tareas/$id'
+    | '/portal/tickets/$id'
+    | '/portal/tickets/nuevo'
     | '/clientes'
     | '/servicios'
+    | '/soporte'
+    | '/tareas'
+    | '/portal/tickets'
   id:
     | '__root__'
     | '/_admin'
     | '/login'
     | '/portal'
     | '/recuperar'
+    | '/reset-password'
     | '/setup-inicial'
     | '/_admin/arquitectura'
     | '/_admin/auditoria'
@@ -534,6 +628,9 @@ export interface FileRouteTypes {
     | '/portal/avisos'
     | '/portal/datos'
     | '/portal/dominios'
+    | '/portal/pago-exitoso'
+    | '/portal/pago-fallido'
+    | '/portal/pago-pendiente'
     | '/portal/pagos'
     | '/portal/tickets'
     | '/_admin/'
@@ -544,8 +641,13 @@ export interface FileRouteTypes {
     | '/_admin/soporte/$id'
     | '/_admin/soporte/nuevo'
     | '/_admin/tareas/$id'
+    | '/portal/tickets/$id'
+    | '/portal/tickets/nuevo'
     | '/_admin/clientes/'
     | '/_admin/servicios/'
+    | '/_admin/soporte/'
+    | '/_admin/tareas/'
+    | '/portal/tickets/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -553,6 +655,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   PortalRoute: typeof PortalRouteWithChildren
   RecuperarRoute: typeof RecuperarRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
   SetupInicialRoute: typeof SetupInicialRoute
 }
 
@@ -563,6 +666,13 @@ declare module '@tanstack/react-router' {
       path: '/setup-inicial'
       fullPath: '/setup-inicial'
       preLoaderRoute: typeof SetupInicialRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/recuperar': {
@@ -619,6 +729,27 @@ declare module '@tanstack/react-router' {
       path: '/pagos'
       fullPath: '/portal/pagos'
       preLoaderRoute: typeof PortalPagosRouteImport
+      parentRoute: typeof PortalRoute
+    }
+    '/portal/pago-pendiente': {
+      id: '/portal/pago-pendiente'
+      path: '/pago-pendiente'
+      fullPath: '/portal/pago-pendiente'
+      preLoaderRoute: typeof PortalPagoPendienteRouteImport
+      parentRoute: typeof PortalRoute
+    }
+    '/portal/pago-fallido': {
+      id: '/portal/pago-fallido'
+      path: '/pago-fallido'
+      fullPath: '/portal/pago-fallido'
+      preLoaderRoute: typeof PortalPagoFallidoRouteImport
+      parentRoute: typeof PortalRoute
+    }
+    '/portal/pago-exitoso': {
+      id: '/portal/pago-exitoso'
+      path: '/pago-exitoso'
+      fullPath: '/portal/pago-exitoso'
+      preLoaderRoute: typeof PortalPagoExitosoRouteImport
       parentRoute: typeof PortalRoute
     }
     '/portal/dominios': {
@@ -810,6 +941,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminArquitecturaRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/portal/tickets/': {
+      id: '/portal/tickets/'
+      path: '/'
+      fullPath: '/portal/tickets/'
+      preLoaderRoute: typeof PortalTicketsIndexRouteImport
+      parentRoute: typeof PortalTicketsRoute
+    }
+    '/_admin/tareas/': {
+      id: '/_admin/tareas/'
+      path: '/'
+      fullPath: '/tareas/'
+      preLoaderRoute: typeof AdminTareasIndexRouteImport
+      parentRoute: typeof AdminTareasRoute
+    }
+    '/_admin/soporte/': {
+      id: '/_admin/soporte/'
+      path: '/'
+      fullPath: '/soporte/'
+      preLoaderRoute: typeof AdminSoporteIndexRouteImport
+      parentRoute: typeof AdminSoporteRoute
+    }
     '/_admin/servicios/': {
       id: '/_admin/servicios/'
       path: '/servicios'
@@ -823,6 +975,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/clientes/'
       preLoaderRoute: typeof AdminClientesIndexRouteImport
       parentRoute: typeof AdminRoute
+    }
+    '/portal/tickets/nuevo': {
+      id: '/portal/tickets/nuevo'
+      path: '/nuevo'
+      fullPath: '/portal/tickets/nuevo'
+      preLoaderRoute: typeof PortalTicketsNuevoRouteImport
+      parentRoute: typeof PortalTicketsRoute
+    }
+    '/portal/tickets/$id': {
+      id: '/portal/tickets/$id'
+      path: '/$id'
+      fullPath: '/portal/tickets/$id'
+      preLoaderRoute: typeof PortalTicketsIdRouteImport
+      parentRoute: typeof PortalTicketsRoute
     }
     '/_admin/tareas/$id': {
       id: '/_admin/tareas/$id'
@@ -884,11 +1050,13 @@ const AdminDominiosRouteWithChildren = AdminDominiosRoute._addFileChildren(
 interface AdminSoporteRouteChildren {
   AdminSoporteIdRoute: typeof AdminSoporteIdRoute
   AdminSoporteNuevoRoute: typeof AdminSoporteNuevoRoute
+  AdminSoporteIndexRoute: typeof AdminSoporteIndexRoute
 }
 
 const AdminSoporteRouteChildren: AdminSoporteRouteChildren = {
   AdminSoporteIdRoute: AdminSoporteIdRoute,
   AdminSoporteNuevoRoute: AdminSoporteNuevoRoute,
+  AdminSoporteIndexRoute: AdminSoporteIndexRoute,
 }
 
 const AdminSoporteRouteWithChildren = AdminSoporteRoute._addFileChildren(
@@ -897,10 +1065,12 @@ const AdminSoporteRouteWithChildren = AdminSoporteRoute._addFileChildren(
 
 interface AdminTareasRouteChildren {
   AdminTareasIdRoute: typeof AdminTareasIdRoute
+  AdminTareasIndexRoute: typeof AdminTareasIndexRoute
 }
 
 const AdminTareasRouteChildren: AdminTareasRouteChildren = {
   AdminTareasIdRoute: AdminTareasIdRoute,
+  AdminTareasIndexRoute: AdminTareasIndexRoute,
 }
 
 const AdminTareasRouteWithChildren = AdminTareasRoute._addFileChildren(
@@ -973,12 +1143,31 @@ const AdminRouteChildren: AdminRouteChildren = {
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
+interface PortalTicketsRouteChildren {
+  PortalTicketsIdRoute: typeof PortalTicketsIdRoute
+  PortalTicketsNuevoRoute: typeof PortalTicketsNuevoRoute
+  PortalTicketsIndexRoute: typeof PortalTicketsIndexRoute
+}
+
+const PortalTicketsRouteChildren: PortalTicketsRouteChildren = {
+  PortalTicketsIdRoute: PortalTicketsIdRoute,
+  PortalTicketsNuevoRoute: PortalTicketsNuevoRoute,
+  PortalTicketsIndexRoute: PortalTicketsIndexRoute,
+}
+
+const PortalTicketsRouteWithChildren = PortalTicketsRoute._addFileChildren(
+  PortalTicketsRouteChildren,
+)
+
 interface PortalRouteChildren {
   PortalAvisosRoute: typeof PortalAvisosRoute
   PortalDatosRoute: typeof PortalDatosRoute
   PortalDominiosRoute: typeof PortalDominiosRoute
+  PortalPagoExitosoRoute: typeof PortalPagoExitosoRoute
+  PortalPagoFallidoRoute: typeof PortalPagoFallidoRoute
+  PortalPagoPendienteRoute: typeof PortalPagoPendienteRoute
   PortalPagosRoute: typeof PortalPagosRoute
-  PortalTicketsRoute: typeof PortalTicketsRoute
+  PortalTicketsRoute: typeof PortalTicketsRouteWithChildren
   PortalIndexRoute: typeof PortalIndexRoute
 }
 
@@ -986,8 +1175,11 @@ const PortalRouteChildren: PortalRouteChildren = {
   PortalAvisosRoute: PortalAvisosRoute,
   PortalDatosRoute: PortalDatosRoute,
   PortalDominiosRoute: PortalDominiosRoute,
+  PortalPagoExitosoRoute: PortalPagoExitosoRoute,
+  PortalPagoFallidoRoute: PortalPagoFallidoRoute,
+  PortalPagoPendienteRoute: PortalPagoPendienteRoute,
   PortalPagosRoute: PortalPagosRoute,
-  PortalTicketsRoute: PortalTicketsRoute,
+  PortalTicketsRoute: PortalTicketsRouteWithChildren,
   PortalIndexRoute: PortalIndexRoute,
 }
 
@@ -999,6 +1191,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   PortalRoute: PortalRouteWithChildren,
   RecuperarRoute: RecuperarRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
   SetupInicialRoute: SetupInicialRoute,
 }
 export const routeTree = rootRouteImport
