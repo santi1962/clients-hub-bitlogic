@@ -1,38 +1,21 @@
 import express from "express";
-import multer from "multer";
+import rateLimit from "express-rate-limit";
 import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
 import { authRequired } from "../middlewares/authRequired.js";
 import { getClientById, updateClient } from "../services/clients.service.js";
 import { listServices } from "../services/hosting.service.js";
 import { listDomains } from "../services/domains.service.js";
 import { listPayments, listNotices } from "../services/billing.service.js";
 import { supportService } from "../services/support.service.js";
+import { ticketAttachmentUpload, ticketUploadsDir } from "../middlewares/ticketUpload.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadsDir = path.join(__dirname, "../../uploads/tickets");
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadsDir),
-  filename: (_req, file, cb) => {
-    const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const ext = path.extname(file.originalname);
-    cb(null, `${unique}${ext}`);
-  },
-});
-
-const ALLOWED_MIME = /^(image\/(jpeg|png|gif|webp)|application\/pdf|audio\/(webm|mp4|ogg|mpeg))$/;
-const upload = multer({
-  storage,
-  limits: { fileSize: 20 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    if (ALLOWED_MIME.test(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error("Tipo de archivo no permitido. Solo imágenes, PDF y audio."));
-    }
-  },
+const ticketMessageLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 60,
+  message: { error: { message: "Demasiados mensajes enviados. Esperá unos minutos." } },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
 const router = express.Router();
@@ -106,7 +89,8 @@ router.post(
   "/tickets/:id/messages",
   authRequired,
   requireClientId,
-  upload.single("file"),
+  ticketMessageLimiter,
+  ticketAttachmentUpload,
   async (req, res, next) => {
     try {
       const ticket = await supportService.getTicket(req.params.id);
@@ -172,7 +156,7 @@ router.get("/uploads/tickets/:filename", authRequired, requireClientId, async (r
       return res.status(403).json({ error: { message: "Acceso denegado" } });
     }
 
-    const filePath = path.join(__dirname, "../../uploads/tickets", safe);
+    const filePath = path.join(ticketUploadsDir, safe);
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: { message: "Archivo no encontrado en disco" } });
     }
