@@ -1,26 +1,47 @@
 /**
  * Scheduler Service
- * Manages job registration, execution, and logging
- * Phase 4E.1: Infrastructure only (no critical actions yet)
+ * Manages job registration, execution, and logging.
+ *
+ * El lock de "un job a la vez" (runningJobs) es compartido entre disparo
+ * manual (panel) y disparo automático (cron) porque ambos pasan por
+ * executeJob(). Para una sola instancia PM2 (fork), un Set en memoria
+ * alcanza. Si algún día el backend corre en más de una instancia, este
+ * lock deja de servir — hace falta un lock en PostgreSQL (ej. pg_advisory_lock)
+ * compartido entre procesos.
  */
+import { randomUUID } from "crypto";
 import pool from "../db/pool.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("scheduler");
 
 // In-memory job registry
 const jobs = new Map();
 const runningJobs = new Set();
+
+/** Saca de un mensaje de error patrones obvios de secretos antes de guardarlo. */
+function sanitizeErrorMessage(message) {
+  if (!message) return message;
+  return String(message)
+    .replace(/postgres(?:ql)?:\/\/[^\s]+/gi, "postgres://[REDACTED]")
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]");
+}
 
 export const schedulerService = {
   /**
    * Register a job
    */
   registerJob(jobName, description, jobFn) {
+    if (jobs.has(jobName)) {
+      log.warn(`Job "${jobName}" ya estaba registrado, se sobreescribe la definición anterior`);
+    }
     jobs.set(jobName, {
       name: jobName,
       description,
       fn: jobFn,
       lastRun: null,
     });
-    console.log(`[Scheduler] Registered job: ${jobName}`);
+    log.info(`Job registrado: ${jobName}`);
   },
 
   /**
@@ -34,17 +55,16 @@ export const schedulerService = {
     }));
   },
 
-  /**
-   * Execute a job manually
-   */
-  async executeJob(jobName, user = null) {
-    // Prevent double execution
-    if (runningJobs.has(jobName)) {
-      const err = new Error(`Job ${jobName} is already running`);
-      err.status = 409;
-      throw err;
-    }
+  /** Si un job está corriendo ahora mismo (manual o programado). */
+  isRunning(jobName) {
+    return runningJobs.has(jobName);
+  },
 
+  /**
+   * Execute a job. `trigger` es "manual" (panel) o "scheduled" (cron) —
+   * ambos comparten el mismo lock e idéntica ruta de logging.
+   */
+  async executeJob(jobName, user = null, trigger = "manual") {
     const job = jobs.get(jobName);
     if (!job) {
       const err = new Error(`Job ${jobName} not found`);
@@ -52,25 +72,28 @@ export const schedulerService = {
       throw err;
     }
 
-    const jobId = Date.now(); // Simple unique ID per execution
+    // Prevent double execution — compartido entre manual y scheduled.
+    if (runningJobs.has(jobName)) {
+      const err = new Error(`Job ${jobName} is already running`);
+      err.status = 409;
+      err.code = "ALREADY_RUNNING";
+      throw err;
+    }
+
+    const executionId = randomUUID();
     runningJobs.add(jobName);
 
     const startTime = Date.now();
-    let logEntry = {
-      jobName,
-      status: "running",
-      startedAt: new Date(),
-      summary: null,
-      errorMessage: null,
-    };
+    let logEntry;
+
+    log.info(`Job "${jobName}" iniciado (${trigger})`, { jobName, trigger, executionId });
 
     try {
-      console.log(`[Scheduler] Starting job: ${jobName}`);
-
       // Execute the job function
       const result = await job.fn();
-
       const duration = Date.now() - startTime;
+
+      const resultSummary = result && typeof result === "object" ? result : { result };
 
       logEntry = {
         jobName,
@@ -78,11 +101,15 @@ export const schedulerService = {
         startedAt: new Date(startTime),
         finishedAt: new Date(),
         durationMs: duration,
-        summary: result,
+        summary: { ...resultSummary, trigger, executionId },
         errorMessage: null,
       };
 
-      console.log(`[Scheduler] Job ${jobName} completed in ${duration}ms`);
+      log.info(`Job "${jobName}" completado en ${duration}ms (${trigger})`, {
+        jobName,
+        trigger,
+        executionId,
+      });
     } catch (err) {
       const duration = Date.now() - startTime;
 
@@ -92,11 +119,11 @@ export const schedulerService = {
         startedAt: new Date(startTime),
         finishedAt: new Date(),
         durationMs: duration,
-        summary: null,
-        errorMessage: err.message,
+        summary: { trigger, executionId },
+        errorMessage: sanitizeErrorMessage(err.message),
       };
 
-      console.error(`[Scheduler] Job ${jobName} failed: ${err.message}`);
+      log.error(`Job "${jobName}" falló (${trigger})`, { jobName, trigger, executionId, err });
     } finally {
       runningJobs.delete(jobName);
     }
@@ -206,7 +233,10 @@ export const schedulerService = {
       LIMIT 1
     `;
 
-    const result = await db.query(query, [jobName]);
+    // Bug objetivo corregido: usaba `db.query` pero `db` nunca estaba
+    // importado en este archivo — tiraba ReferenceError siempre que se
+    // llamaba (GET /api/scheduler/jobs/:jobName/latest estaba roto).
+    const result = await pool.query(query, [jobName]);
     return result.rows[0] || null;
   },
 };

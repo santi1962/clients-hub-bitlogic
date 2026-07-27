@@ -130,6 +130,18 @@ const config = {
     enabled: parseBool(process.env.WHATSAPP_ENABLED, false),
     sessionDir: process.env.WHATSAPP_SESSION_DIR ?? "./whatsapp-session",
   },
+
+  scheduler: {
+    // Default: false en desarrollo, true en producción — salvo override explícito.
+    enabled: parseBool(process.env.SCHEDULER_ENABLED, isProduction),
+    timezone: process.env.SCHEDULER_TIMEZONE || "America/Argentina/Buenos_Aires",
+    // Horarios de producción, overrideables individualmente (ej. para pruebas).
+    schedules: {
+      hestiaSync: process.env.SCHEDULE_HESTIA_SYNC || "30 2 * * *",
+      delinquencyDetection: process.env.SCHEDULE_DELINQUENCY_DETECTION || "0 8 * * *",
+      paymentReminders: process.env.SCHEDULE_PAYMENT_REMINDERS || "0 9 * * *",
+    },
+  },
 };
 
 export default config;
