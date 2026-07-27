@@ -11,7 +11,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AlertCircle, Download, Loader2, HardDrive, Info } from "lucide-react";
+import { AlertCircle, Download, Loader2, HardDrive, Info, RefreshCw } from "lucide-react";
+import { request, getAccessToken, API_BASE_URL } from "@/lib/api-client";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_admin/backups")({
   head: () => ({ meta: [{ title: "Backups — Bitlogic" }] }),
@@ -28,56 +30,55 @@ interface BackupRecord {
   notes?: string;
 }
 
-const MOCK_BACKUPS: BackupRecord[] = [
-  {
-    id: "bk_001",
-    name: "Backup Base de Datos",
-    type: "database",
-    size_mb: 245.5,
-    created_at: "2026-06-17T14:30:00Z",
-    status: "success",
-    notes: "Backup automático diario",
-  },
-  {
-    id: "bk_002",
-    name: "Backup Completo",
-    type: "full",
-    size_mb: 1024.3,
-    created_at: "2026-06-16T02:00:00Z",
-    status: "success",
-    notes: "Backup semanal programado",
-  },
-  {
-    id: "bk_003",
-    name: "Backup Base de Datos",
-    type: "database",
-    size_mb: 243.2,
-    created_at: "2026-06-15T14:30:00Z",
-    status: "success",
-  },
-];
-
 function BackupsPage() {
-  const [backups, setBackups] = useState<BackupRecord[]>(MOCK_BACKUPS);
+  const [backups, setBackups] = useState<BackupRecord[]>([]);
+  const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+
+  async function loadBackups() {
+    setLoading(true);
+    try {
+      const data = await request<BackupRecord[]>("/backups");
+      setBackups(data);
+    } catch {
+      // silencioso, la tabla puede estar vacía
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadBackups(); }, []);
+
+  async function downloadBackup(backup: BackupRecord) {
+    try {
+      const token = getAccessToken();
+      const res = await fetch(`${API_BASE_URL}/backups/${backup.id}/download`, {
+        credentials: "include",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error?.message ?? `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${backup.name}.sql`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al descargar el backup");
+    }
+  }
 
   async function createBackup() {
     try {
       setCreating(true);
-      // Simulación - en producción llamaría al backend
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      const newBackup: BackupRecord = {
-        id: `bk_${Date.now()}`,
-        name: "Backup Base de Datos",
-        type: "database",
-        size_mb: Math.random() * 100 + 200,
-        created_at: new Date().toISOString(),
-        status: "success",
-        notes: "Backup bajo demanda",
-      };
-
-      setBackups([newBackup, ...backups]);
+      await request("/backups", { method: "POST", body: { notes: "Backup bajo demanda" } });
+      // esperar 2s para que el pg_dump tenga chance de iniciar
+      await new Promise((r) => setTimeout(r, 2000));
+      await loadBackups();
     } finally {
       setCreating(false);
     }
@@ -91,19 +92,25 @@ function BackupsPage() {
           <h1 className="text-3xl font-bold">Backups</h1>
           <p className="text-muted-foreground mt-2">Gestión de copias de seguridad del sistema</p>
         </div>
-        <Button onClick={createBackup} disabled={creating}>
-          {creating ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Creando...
-            </>
-          ) : (
-            <>
-              <Download className="h-4 w-4 mr-2" />
-              Crear Backup Ahora
-            </>
-          )}
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={loadBackups} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+            Actualizar
+          </Button>
+          <Button onClick={createBackup} disabled={creating}>
+            {creating ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Creando...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4 mr-2" />
+                Crear Backup Ahora
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Info Card */}
@@ -111,12 +118,11 @@ function BackupsPage() {
         <CardContent className="pt-6 flex items-start gap-3">
           <Info className="h-5 w-5 mt-0.5 text-blue-600 flex-shrink-0" />
           <div>
-            <p className="font-medium text-blue-900">Estrategia de Backups</p>
+            <p className="font-medium text-blue-900">Estrategia de Backups actual</p>
             <p className="text-sm text-blue-700 mt-1">
-              • Diarios: Base de datos (automático a las 14:30 UTC)
-              <br />• Semanales: Backup completo (sábados a las 02:00 UTC)
-              <br />• Retención: 30 días
-              <br />• Ubicación: AWS S3 (encriptado AES-256)
+              • Manual: Backup de base de datos bajo demanda con el botón "Crear Backup Ahora"
+              <br />• Ubicación: disco local del servidor (carpeta <code>backups/</code>), sin cifrado ni retención automática
+              <br />• Recomendado: descargar y guardar cada backup en un lugar externo — ver sección "En desarrollo" más abajo para lo que falta (S3, programación automática, retención)
             </p>
           </div>
         </CardContent>
@@ -126,12 +132,14 @@ function BackupsPage() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Almacenamiento Usado</CardTitle>
+            <CardTitle className="text-sm font-medium">Almacenamiento Backups</CardTitle>
             <HardDrive className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">2.4 GB</div>
-            <p className="text-xs text-muted-foreground">De 100 GB disponibles</p>
+            <div className="text-2xl font-bold">
+              {(backups.filter((b) => b.status === "success").reduce((s, b) => s + Number(b.size_mb), 0) / 1024).toFixed(1)} GB
+            </div>
+            <p className="text-xs text-muted-foreground">Solo backups exitosos</p>
           </CardContent>
         </Card>
 
@@ -140,8 +148,16 @@ function BackupsPage() {
             <CardTitle className="text-sm font-medium">Último Backup</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">Hoy</div>
-            <p className="text-xs text-muted-foreground">Hace 3 horas 40 min</p>
+            {backups.length > 0 ? (
+              <>
+                <div className="text-2xl font-bold">
+                  {new Date(backups[0].created_at).toLocaleDateString("es-AR")}
+                </div>
+                <p className="text-xs text-muted-foreground">{backups[0].name}</p>
+              </>
+            ) : (
+              <div className="text-2xl font-bold text-muted-foreground">—</div>
+            )}
           </CardContent>
         </Card>
 
@@ -151,7 +167,7 @@ function BackupsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{backups.length}</div>
-            <p className="text-xs text-muted-foreground">Últimos 30 días</p>
+            <p className="text-xs text-muted-foreground">Registrados en el sistema</p>
           </CardContent>
         </Card>
       </div>
@@ -160,6 +176,16 @@ function BackupsPage() {
       <div>
         <h2 className="text-xl font-semibold mb-4">Historial de Backups</h2>
         <Card>
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : backups.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <HardDrive className="h-8 w-8 text-muted-foreground mb-2" />
+              <p className="text-sm text-muted-foreground">No hay backups registrados. Creá el primero.</p>
+            </div>
+          ) : (
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -186,7 +212,7 @@ function BackupsPage() {
                             : "Completo"}
                       </Badge>
                     </TableCell>
-                    <TableCell>{backup.size_mb.toFixed(1)} MB</TableCell>
+                    <TableCell>{Number(backup.size_mb).toFixed(1)} MB</TableCell>
                     <TableCell className="text-sm">
                       {new Date(backup.created_at).toLocaleString("es-AR")}
                     </TableCell>
@@ -208,7 +234,12 @@ function BackupsPage() {
                       {backup.notes || "—"}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button size="sm" variant="ghost" disabled>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={backup.status !== "success"}
+                        onClick={() => downloadBackup(backup)}
+                      >
                         <Download className="h-4 w-4" />
                       </Button>
                     </TableCell>
@@ -217,6 +248,7 @@ function BackupsPage() {
               </TableBody>
             </Table>
           </div>
+          )}
         </Card>
       </div>
 

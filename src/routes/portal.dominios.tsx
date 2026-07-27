@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+﻿import { createFileRoute } from "@tanstack/react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -12,19 +12,15 @@ import { StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertTriangle, Loader2 } from "lucide-react";
-import { formatDate } from "@/lib/mock-data";
-import { useDomains } from "@/lib/queries";
-import { useAuth } from "@/lib/auth";
-import { DEMO_CLIENT_ID } from "./portal";
+import { formatDate } from "@/lib/format";
+import { useMyDomains } from "@/lib/queries";
 
 export const Route = createFileRoute("/portal/dominios")({
   component: PortalDominios,
 });
 
 function PortalDominios() {
-  const { user } = useAuth();
-  const clientId = user?.clientId ?? DEMO_CLIENT_ID;
-  const { data: domainsData, isLoading, isError } = useDomains({ clientId });
+  const { data: domainsData, isLoading, isError } = useMyDomains();
   const domains = domainsData?.data ?? [];
 
   if (isLoading) {
@@ -55,22 +51,6 @@ function PortalDominios() {
             <AlertTriangle className="h-6 w-6 text-destructive" />
             <p className="text-sm text-muted-foreground">Error al cargar los dominios.</p>
           </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!user?.clientId) {
-    return (
-      <Card className="border-border/60 bg-card/60">
-        <CardHeader>
-          <CardTitle className="text-base">Mis dominios</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <EmptyState
-            title="Sin acceso a dominios"
-            description="No tienes un cliente asignado. Contacta a soporte."
-          />
         </CardContent>
       </Card>
     );

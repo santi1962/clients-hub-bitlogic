@@ -44,7 +44,7 @@ export async function get(req, res, next) {
  */
 export async function create(req, res, next) {
   try {
-    const { name, storage_gb, monthly_price } = req.body;
+    const { name, storageGb, monthlyPrice } = req.body;
 
     // Validaciones
     if (!name || !name.trim()) {
@@ -62,7 +62,7 @@ export async function create(req, res, next) {
       });
     }
 
-    if (!monthly_price || monthly_price <= 0) {
+    if (!monthlyPrice || monthlyPrice <= 0) {
       return res.status(400).json({
         error: {
           code: "INVALID_PRICE",
@@ -71,7 +71,7 @@ export async function create(req, res, next) {
       });
     }
 
-    if (storage_gb === undefined || storage_gb < 0) {
+    if (storageGb !== undefined && storageGb < 0) {
       return res.status(400).json({
         error: {
           code: "INVALID_STORAGE",

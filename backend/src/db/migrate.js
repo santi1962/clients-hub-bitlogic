@@ -19,6 +19,10 @@ const migrations = [
   "010_automation_settings_schema.sql",
   "011_payment_reminder_logs_schema.sql",
   "012_settings_schema.sql",
+  "013_users_notifications.sql",
+  "014_email_templates.sql",
+  "015_backups_schema.sql",
+  "016_password_reset_tokens.sql",
 ];
 
 console.log("Running migrations…");

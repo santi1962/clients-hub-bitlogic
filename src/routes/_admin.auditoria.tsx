@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+﻿import { createFileRoute } from "@tanstack/react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,7 +23,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { LogIn, Loader2, Eye } from "lucide-react";
 import { useState, useEffect } from "react";
-import { formatDate } from "@/lib/mock-data";
+import { formatDate } from "@/lib/format";
 import { request } from "@/lib/api-client";
 
 export const Route = createFileRoute("/_admin/auditoria")({
@@ -195,7 +195,7 @@ function AuditoriaPage() {
                     {logs.filter(log => !filters.usuario || log.user_name.toLowerCase().includes(filters.usuario.toLowerCase())).map((log) => (
                       <TableRow key={log.id}>
                         <TableCell className="text-xs">
-                          {formatDate(new Date(log.created_at))}
+                          {formatDate(log.created_at)}
                         </TableCell>
                         <TableCell className="text-xs font-medium">{log.user_name}</TableCell>
                         <TableCell>
@@ -281,7 +281,7 @@ function AuditoriaPage() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Fecha</p>
-                  <p className="font-medium">{formatDate(new Date(selectedLog.created_at))}</p>
+                  <p className="font-medium">{formatDate(selectedLog.created_at)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Entidad</p>

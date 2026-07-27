@@ -18,12 +18,10 @@ export async function updateCompanySettings(data) {
   try {
     await client.query("BEGIN");
 
-    // Verificar si ya existe configuración
     const existing = await client.query("SELECT id FROM company_settings LIMIT 1");
 
     let result;
     if (existing.rows.length === 0) {
-      // Crear nueva configuración
       const id = uuidv4();
       result = await client.query(
         `INSERT INTO company_settings (id, company_name, contact_email, phone, tax_id, address, currency)
@@ -32,7 +30,6 @@ export async function updateCompanySettings(data) {
         [id, companyName, contactEmail, phone, taxId, address, currency],
       );
     } else {
-      // Actualizar existente
       result = await client.query(
         `UPDATE company_settings
          SET company_name = $1, contact_email = $2, phone = $3, tax_id = $4, address = $5, currency = $6, updated_at = now()
@@ -52,6 +49,34 @@ export async function updateCompanySettings(data) {
   }
 }
 
+export async function updateCompanyLogo(logoUrl) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const existing = await client.query("SELECT id FROM company_settings LIMIT 1");
+    let result;
+    if (existing.rows.length === 0) {
+      const id = uuidv4();
+      result = await client.query(
+        `INSERT INTO company_settings (id, logo_url) VALUES ($1, $2) RETURNING *`,
+        [id, logoUrl],
+      );
+    } else {
+      result = await client.query(
+        `UPDATE company_settings SET logo_url = $1, updated_at = now() WHERE id = $2 RETURNING *`,
+        [logoUrl, existing.rows[0].id],
+      );
+    }
+    await client.query("COMMIT");
+    return mapSettings(result.rows[0]);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 function mapSettings(row) {
   return {
     id: row.id,
@@ -61,6 +86,7 @@ function mapSettings(row) {
     taxId: row.tax_id,
     address: row.address,
     currency: row.currency,
+    logoUrl: row.logo_url ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

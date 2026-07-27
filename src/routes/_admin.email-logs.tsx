@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+﻿import { createFileRoute } from "@tanstack/react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,13 +22,23 @@ import {
 } from "@/components/ui/table";
 import { Mail, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
-import { formatDate } from "@/lib/mock-data";
+import { formatDate } from "@/lib/format";
 import { emailApi } from "@/lib/api-client";
 
 export const Route = createFileRoute("/_admin/email-logs")({
   head: () => ({ meta: [{ title: "Logs de Email — Bitlogic" }] }),
   component: EmailLogsPage,
 });
+
+const TYPE_LABEL: Record<string, string> = {
+  payment_notice: "Aviso Pago",
+  payment_received: "Pago Recibido",
+  ticket_reply: "Respuesta",
+  domain_reminder: "Recordatorio",
+  service_suspended: "Suspensión",
+  service_reactivated: "Reactivación",
+  test: "Prueba",
+};
 
 interface EmailLog {
   id: string;
@@ -118,8 +128,11 @@ function EmailLogsPage() {
                 <SelectContent>
                   <SelectItem value="">Todos</SelectItem>
                   <SelectItem value="payment_notice">Aviso de Pago</SelectItem>
+                  <SelectItem value="payment_received">Pago Recibido</SelectItem>
                   <SelectItem value="ticket_reply">Respuesta de Ticket</SelectItem>
                   <SelectItem value="domain_reminder">Recordatorio de Dominio</SelectItem>
+                  <SelectItem value="service_suspended">Servicio Suspendido</SelectItem>
+                  <SelectItem value="service_reactivated">Servicio Reactivado</SelectItem>
                   <SelectItem value="test">Prueba</SelectItem>
                 </SelectContent>
               </Select>
@@ -173,13 +186,7 @@ function EmailLogsPage() {
                     {logs.map((log) => (
                       <TableRow key={log.id}>
                         <TableCell className="text-xs font-medium">
-                          {log.type === "payment_notice"
-                            ? "Aviso Pago"
-                            : log.type === "ticket_reply"
-                              ? "Respuesta"
-                              : log.type === "domain_reminder"
-                                ? "Recordatorio"
-                                : "Prueba"}
+                          {TYPE_LABEL[log.type] ?? log.type}
                         </TableCell>
                         <TableCell className="text-xs">{log.recipient}</TableCell>
                         <TableCell className="text-xs max-w-xs truncate">
@@ -203,7 +210,7 @@ function EmailLogsPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-xs">
-                          {log.sent_at ? formatDate(new Date(log.sent_at)) : "—"}
+                          {log.sent_at ? formatDate(log.sent_at) : "—"}
                         </TableCell>
                         <TableCell className="text-xs max-w-xs truncate text-red-600">
                           {log.error_message || "—"}

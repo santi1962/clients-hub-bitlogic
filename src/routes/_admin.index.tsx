@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+﻿import { createFileRoute, Link } from "@tanstack/react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,7 +25,7 @@ import {
   Sparkles,
   BadgeDollarSign,
 } from "lucide-react";
-import { formatDate, formatMoney } from "@/lib/mock-data";
+import { formatDate, formatMoney } from "@/lib/format";
 import { useDashboard } from "@/lib/queries";
 
 const MONTHS_ES = [

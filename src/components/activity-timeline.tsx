@@ -11,10 +11,11 @@ import {
   ListChecks,
   Mail,
   Activity,
+  Zap,
 } from "lucide-react";
-import { useActivity, type ActivityEvent, type ActivityKind } from "@/lib/activity-log";
+import { useActivity, type AuditFilter } from "@/lib/activity-log";
 
-const ICON: Record<ActivityKind, { icon: any; color: string }> = {
+const ICON: Record<string, { icon: any; color: string }> = {
   client_created: { icon: UserPlus, color: "bg-sky-500/15 text-sky-300" },
   service_created: { icon: Server, color: "bg-emerald-500/15 text-emerald-300" },
   service_suspended: { icon: AlertTriangle, color: "bg-rose-500/15 text-rose-300" },
@@ -27,6 +28,8 @@ const ICON: Record<ActivityKind, { icon: any; color: string }> = {
   task_created: { icon: ListChecks, color: "bg-primary/15 text-primary" },
   access_sent: { icon: Mail, color: "bg-violet-500/15 text-violet-300" },
 };
+
+const DEFAULT_ICON = { icon: Zap, color: "bg-muted/15 text-muted-foreground" };
 
 function formatTime(iso: string) {
   const d = new Date(iso);
@@ -48,12 +51,12 @@ export function ActivityTimeline({
   emptyLabel = "Sin actividad registrada todavía.",
   title = "Actividad reciente",
 }: {
-  filter?: Partial<NonNullable<ActivityEvent["refs"]>>;
+  filter?: AuditFilter;
   limit?: number;
   emptyLabel?: string;
   title?: string;
 }) {
-  const events = useActivity(filter);
+  const events = useActivity(filter ? { ...filter, limit: limit ?? filter.limit } : undefined);
   const items = limit ? events.slice(0, limit) : events;
 
   return (
@@ -72,7 +75,7 @@ export function ActivityTimeline({
         <ol className="relative space-y-3 pl-5">
           <span className="absolute left-[9px] top-1 bottom-1 w-px bg-border/60" />
           {items.map((e) => {
-            const { icon: Icon, color } = ICON[e.kind];
+            const { icon: Icon, color } = ICON[e.kind] ?? DEFAULT_ICON;
             return (
               <li key={e.id} className="relative">
                 <span

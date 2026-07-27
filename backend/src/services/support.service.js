@@ -3,6 +3,8 @@
  * Handles ticket creation, listing, updating, and messaging.
  */
 import pool from "../db/pool.js";
+import { getIo } from "../socket.js";
+import { sendTelegramMessage } from "./telegram.service.js";
 
 export const supportService = {
   /**
@@ -173,7 +175,12 @@ export const supportService = {
       createdBy || null,
     ]);
 
-    return result.rows[0];
+    const ticket = result.rows[0];
+    sendTelegramMessage(
+      `🎫 <b>Ticket nuevo</b> #${ticket.ticket_number}\n${subject}\nPrioridad: ${priority}`,
+    );
+
+    return ticket;
   },
 
   /**
@@ -220,6 +227,9 @@ export const supportService = {
     senderRole,
     message,
     isInternal = false,
+    attachmentUrl = null,
+    attachmentType = null,
+    attachmentName = null,
   }) {
     const client = await pool.connect();
     try {
@@ -228,8 +238,9 @@ export const supportService = {
       // Insert message
       const msgQuery = `
         INSERT INTO support_ticket_messages
-          (ticket_id, sender_user_id, sender_name, sender_role, message, is_internal)
-        VALUES ($1, $2, $3, $4, $5, $6)
+          (ticket_id, sender_user_id, sender_name, sender_role, message, is_internal,
+           attachment_url, attachment_type, attachment_name)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING *
       `;
       const msgResult = await client.query(msgQuery, [
@@ -237,8 +248,11 @@ export const supportService = {
         senderUserId || null,
         senderName,
         senderRole,
-        message,
+        message || null,
         isInternal,
+        attachmentUrl,
+        attachmentType,
+        attachmentName,
       ]);
 
       // Update ticket last_message_at
@@ -250,7 +264,19 @@ export const supportService = {
       await client.query(updateQuery, [ticketId]);
 
       await client.query("COMMIT");
-      return msgResult.rows[0];
+
+      const msg = msgResult.rows[0];
+      // Emitir en tiempo real a todos los que están viendo este ticket
+      getIo()?.to(`ticket:${ticketId}`).emit("ticket:message", msg);
+
+      // Avisar a staff por Telegram solo cuando el mensaje viene del cliente
+      if (senderRole === "cliente" && !isInternal) {
+        sendTelegramMessage(
+          `💬 <b>Respuesta de cliente</b> en ticket\n${senderName}: ${(message || "[archivo adjunto]").slice(0, 200)}`,
+        );
+      }
+
+      return msg;
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;
@@ -302,5 +328,16 @@ export const supportService = {
     const result = await pool.query(query, [id]);
     if (result.rows.length === 0) throw new Error("Ticket not found");
     return result.rows[0];
+  },
+
+  /**
+   * Delete ticket and all its messages
+   */
+  async deleteTicket(id) {
+    const result = await pool.query(
+      "DELETE FROM support_tickets WHERE id = $1 RETURNING id",
+      [id],
+    );
+    if (result.rows.length === 0) throw new Error("Ticket not found");
   },
 };

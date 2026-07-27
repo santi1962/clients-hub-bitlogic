@@ -1,9 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Zap, Mail, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { Zap, Mail, ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { authApi } from "@/lib/api-client";
 
 export const Route = createFileRoute("/recuperar")({
   head: () => ({ meta: [{ title: "Recuperar contraseña — Bitlogic" }] }),
@@ -20,10 +21,19 @@ export const Route = createFileRoute("/recuperar")({
 function RecoverPage() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSent(true);
+    setLoading(true);
+    try {
+      await authApi.forgotPassword(email);
+    } catch {
+      // always show success to prevent email enumeration
+    } finally {
+      setLoading(false);
+      setSent(true);
+    }
   };
 
   return (
@@ -90,8 +100,12 @@ function RecoverPage() {
               </div>
             </div>
 
-            <Button type="submit" className="w-full">
-              Enviar instrucciones
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Enviando…</>
+              ) : (
+                "Enviar instrucciones"
+              )}
             </Button>
 
             <Link

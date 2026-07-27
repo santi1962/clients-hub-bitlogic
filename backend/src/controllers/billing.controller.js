@@ -117,13 +117,11 @@ export async function sendNotice(req, res, next) {
 
 export async function noticePdf(req, res, next) {
   try {
-    const notice = await billingService.getNoticeById(req.params.id);
-    res.json({
-      id: notice.id,
-      noticeNumber: notice.noticeNumber,
-      pdfUrl: null,
-      message: "Generación de PDF pendiente de implementación",
-    });
+    const pdfBuffer = await billingService.generateNoticePdf(req.params.id);
+    res.set("Content-Type", "application/pdf");
+    res.set("Content-Disposition", `inline; filename="aviso-${req.params.id}.pdf"`);
+    res.set("Content-Length", pdfBuffer.length);
+    res.send(pdfBuffer);
   } catch (err) {
     next(err);
   }
@@ -143,6 +141,23 @@ export async function cancelNotice(req, res, next) {
       newValues: { status: "cancelled" },
     });
     res.json(cancelledNotice);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteNotice(req, res, next) {
+  try {
+    const notice = await billingService.getNoticeById(req.params.id);
+    await billingService.deleteNotice(req.params.id);
+    await auditService.logAction({
+      user: req.user,
+      action: "eliminar",
+      entityType: "aviso",
+      entityId: req.params.id,
+      entityName: notice.noticeNumber,
+    });
+    res.status(204).end();
   } catch (err) {
     next(err);
   }
@@ -220,6 +235,9 @@ export async function createPayment(req, res, next) {
       entityName: `${periodMonth}/${periodYear}`,
       newValues: req.body,
     });
+    if (payment.status === "paid") {
+      emailService.sendPaymentReceivedEmail(payment.id).catch(() => {});
+    }
     res.status(201).json(payment);
   } catch (err) {
     next(err);
@@ -228,7 +246,36 @@ export async function createPayment(req, res, next) {
 
 export async function updatePayment(req, res, next) {
   try {
-    res.json(await billingService.updatePayment(req.params.id, req.body ?? {}));
+    const oldPayment = await billingService.getPaymentById(req.params.id);
+    const payment = await billingService.updatePayment(req.params.id, req.body ?? {});
+    await auditService.logAction({
+      user: req.user,
+      action: "editar",
+      entityType: "pago",
+      entityId: req.params.id,
+      entityName: `${oldPayment.periodMonth}/${oldPayment.periodYear}`,
+      oldValues: oldPayment,
+      newValues: req.body,
+    });
+    res.json(payment);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deletePayment(req, res, next) {
+  try {
+    const oldPayment = await billingService.getPaymentById(req.params.id);
+    await billingService.deletePayment(req.params.id);
+    await auditService.logAction({
+      user: req.user,
+      action: "eliminar",
+      entityType: "pago",
+      entityId: req.params.id,
+      entityName: `${oldPayment.periodMonth}/${oldPayment.periodYear}`,
+      oldValues: oldPayment,
+    });
+    res.status(204).send();
   } catch (err) {
     next(err);
   }
@@ -247,6 +294,7 @@ export async function markPaid(req, res, next) {
       oldValues: { status: oldPayment.status },
       newValues: { status: "paid" },
     });
+    emailService.sendPaymentReceivedEmail(payment.id).catch(() => {});
     res.json(payment);
   } catch (err) {
     next(err);

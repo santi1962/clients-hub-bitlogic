@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+﻿import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { Command, LifeBuoy, Globe, Wallet, Server, ListChecks, ArrowRight, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { dashboardApi } from "@/lib/api-client";
-import { formatDate, formatMoney } from "@/lib/mock-data";
+import { formatDate, formatMoney } from "@/lib/format";
+import { paymentStatusFromDb, domainStatusFromDb } from "@/lib/api-mappers";
 
 export const Route = createFileRoute("/_admin/operaciones")({
   head: () => ({ meta: [{ title: "Centro de Operaciones — Bitlogic" }] }),
@@ -127,7 +128,7 @@ function OperacionesPage() {
                     <TableCell className="text-muted-foreground">{d.clientCompany}</TableCell>
                     <TableCell>{formatDate(d.expirationDate)}</TableCell>
                     <TableCell>
-                      <StatusBadge status={d.status} />
+                      <StatusBadge status={domainStatusFromDb(d.status)} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -139,7 +140,7 @@ function OperacionesPage() {
         </SectionCard>
 
         <SectionCard
-          title="Pagos pendientes"
+          title="Pagos recientes"
           icon={Wallet}
           count={recentPayments.length}
           to="/pagos"
@@ -165,7 +166,7 @@ function OperacionesPage() {
                     </TableCell>
                     <TableCell className="text-right font-medium">{formatMoney(p.amount)}</TableCell>
                     <TableCell>
-                      <StatusBadge status={p.status} />
+                      <StatusBadge status={paymentStatusFromDb(p.status)} />
                     </TableCell>
                   </TableRow>
                 ))}

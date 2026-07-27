@@ -48,6 +48,7 @@ export const auditService = {
    */
   async listLogs({
     entityType,
+    entityId,
     userId,
     action,
     dateFrom,
@@ -62,6 +63,10 @@ export const auditService = {
     if (entityType) {
       conditions.push(`entity_type = $${idx++}`);
       params.push(entityType);
+    }
+    if (entityId) {
+      conditions.push(`entity_id = $${idx++}`);
+      params.push(entityId);
     }
     if (userId) {
       conditions.push(`user_id = $${idx++}`);

@@ -1,19 +1,5 @@
-/**
- * ============================================================
- * Bitlogic — Activity Log (in-memory audit/timeline store)
- * ------------------------------------------------------------
- * Captura eventos de negocio generados por los workflows y los
- * expone a través de un hook con subscripción reactiva.
- *
- * BACKEND OBJETIVO:
- *   Tabla `audit_logs` (ver /arquitectura). Cada evento → fila.
- *   POST /api/audit-logs lo crea desde los endpoints de mutación.
- *   GET /api/audit-logs?entity=client&id=X devuelve el timeline.
- *
- * Hoy: estado en memoria + EventTarget para refresco.
- * ============================================================
- */
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { request } from "./api-client";
 
 export type ActivityKind =
   | "client_created"
@@ -26,16 +12,16 @@ export type ActivityKind =
   | "ticket_created"
   | "domain_renewed"
   | "task_created"
-  | "access_sent";
+  | "access_sent"
+  | string;
 
 export interface ActivityEvent {
   id: string;
   kind: ActivityKind;
   title: string;
   description?: string;
-  actor: string; // usuario que originó la acción
-  createdAt: string; // ISO
-  /** Entidades vinculadas para filtrar el timeline. */
+  actor: string;
+  createdAt: string;
   refs?: {
     clientId?: string;
     serviceId?: string;
@@ -48,69 +34,81 @@ export interface ActivityEvent {
   };
 }
 
-const initial: ActivityEvent[] = [
-  {
-    id: "evt-seed-1",
-    kind: "client_created",
-    title: "Cliente Café del Valle registrado",
-    actor: "Sistema",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7).toISOString(),
-    refs: { clientId: "c1" },
-  },
-  {
-    id: "evt-seed-2",
-    kind: "service_created",
-    title: "Servicio cafedelvalle.com creado (Pro)",
-    actor: "Mariano F.",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7).toISOString(),
-    refs: { clientId: "c1", serviceId: "s1", planId: "p-pro" },
-  },
-  {
-    id: "evt-seed-3",
-    kind: "payment_registered",
-    title: "Pago recibido — USD 18",
-    description: "Mercado Pago · período 2026-05",
-    actor: "Mariano F.",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
-    refs: { clientId: "c1", serviceId: "s1" },
-  },
-];
+interface AuditLog {
+  id: string;
+  user_name: string;
+  user_role: string;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  entity_name: string | null;
+  created_at: string;
+}
 
-const store = {
-  events: [...initial],
-  target: new EventTarget(),
+const ACTION_KIND_MAP: Record<string, ActivityKind> = {
+  crear_cliente: "client_created",
+  crear_servicio: "service_created",
+  suspender_servicio: "service_suspended",
+  reactivar_servicio: "service_reactivated",
+  cambiar_plan: "service_plan_changed",
+  crear_aviso: "payment_notice_created",
+  registrar_pago: "payment_registered",
+  crear_ticket: "ticket_created",
+  renovar_dominio: "domain_renewed",
+  crear_tarea: "task_created",
+  enviar_accesos: "access_sent",
 };
 
-export function pushActivity(
-  evt: Omit<ActivityEvent, "id" | "createdAt"> & { createdAt?: string },
-) {
-  const event: ActivityEvent = {
-    id: `evt-${Math.random().toString(36).slice(2, 9)}`,
-    createdAt: evt.createdAt ?? new Date().toISOString(),
-    ...evt,
+function mapLog(log: AuditLog): ActivityEvent {
+  const actionKey = `${log.action}_${log.entity_type}`.toLowerCase().replace(/\s+/g, "_");
+  const kind: ActivityKind = ACTION_KIND_MAP[actionKey] ?? ACTION_KIND_MAP[log.action] ?? log.action;
+
+  const title = log.entity_name
+    ? `${log.entity_name} — ${log.action}`
+    : `${log.entity_type}: ${log.action}`;
+
+  return {
+    id: log.id,
+    kind,
+    title,
+    actor: log.user_name ?? "Sistema",
+    createdAt: log.created_at,
+    refs: { [entityTypeToRef(log.entity_type)]: log.entity_id },
   };
-  store.events = [event, ...store.events];
-  store.target.dispatchEvent(new Event("change"));
-  return event;
 }
 
-export function getActivity(filter?: Partial<ActivityEvent["refs"]>): ActivityEvent[] {
-  if (!filter) return store.events;
-  const keys = Object.keys(filter) as (keyof NonNullable<ActivityEvent["refs"]>)[];
-  return store.events.filter((e) => {
-    if (!e.refs) return false;
-    return keys.every(
-      (k) => (filter as any)[k] === undefined || e.refs?.[k] === (filter as any)[k],
-    );
+function entityTypeToRef(entityType: string): keyof NonNullable<ActivityEvent["refs"]> {
+  const map: Record<string, keyof NonNullable<ActivityEvent["refs"]>> = {
+    cliente: "clientId",
+    servicio: "serviceId",
+    dominio: "domainId",
+    ticket: "ticketId",
+    pago: "paymentId",
+    aviso: "noticeId",
+    plan: "planId",
+    tarea: "taskId",
+  };
+  return map[entityType] ?? "clientId";
+}
+
+export interface AuditFilter {
+  entityId?: string;
+  entityType?: string;
+  limit?: number;
+}
+
+export function useActivity(filter?: AuditFilter) {
+  const params = new URLSearchParams();
+  if (filter?.entityId) params.set("entityId", filter.entityId);
+  if (filter?.entityType) params.set("entityType", filter.entityType);
+  params.set("limit", String(filter?.limit ?? 50));
+
+  const { data } = useQuery<{ data: AuditLog[] }>({
+    queryKey: ["audit", "list", filter],
+    queryFn: () =>
+      request<{ data: AuditLog[] }>(`/audit?${params.toString()}`),
+    staleTime: 30_000,
   });
-}
 
-export function useActivity(filter?: Partial<ActivityEvent["refs"]>) {
-  const [, force] = useState(0);
-  useEffect(() => {
-    const h = () => force((n) => n + 1);
-    store.target.addEventListener("change", h);
-    return () => store.target.removeEventListener("change", h);
-  }, []);
-  return getActivity(filter);
+  return (data?.data ?? []).map(mapLog);
 }

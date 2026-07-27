@@ -9,6 +9,28 @@ const DOMAIN_SELECT = `
   hs.domain AS service_domain, hp.name AS plan_name
 `;
 
+function formatDomain(row) {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    hostingServiceId: row.hosting_service_id ?? null,
+    domain: row.domain,
+    registrar: row.registrar ?? null,
+    registrationDate: row.registration_date ?? null,
+    expirationDate: row.expiration_date,
+    autoRenew: row.auto_renew ?? false,
+    annualCost: row.annual_cost ?? null,
+    customerPrice: row.customer_price ?? null,
+    status: row.status,
+    notes: row.notes ?? null,
+    clientName: row.client_name ?? null,
+    clientCompany: row.client_company ?? null,
+    serviceDomain: row.service_domain ?? null,
+    planName: row.plan_name ?? null,
+    createdAt: row.created_at,
+  };
+}
+
 export async function listDomains({
   clientId,
   serviceId,
@@ -49,7 +71,9 @@ export async function listDomains({
       paramCount++;
     }
     if (expiringInDays) {
-      query += ` AND d.expiration_date <= NOW() + INTERVAL '${expiringInDays} days' AND d.status != 'cancelled'`;
+      query += ` AND d.expiration_date <= NOW() + ($${paramCount} * INTERVAL '1 day') AND d.status != 'cancelled'`;
+      params.push(parseInt(expiringInDays, 10));
+      paramCount++;
     }
 
     query += ` ORDER BY d.expiration_date ASC
@@ -87,7 +111,7 @@ export async function listDomains({
     const total = countResult.rows[0].count;
 
     return {
-      data: result.rows,
+      data: result.rows.map(formatDomain),
       meta: { page, limit, total, pages: Math.ceil(total / limit) },
     };
   } finally {
@@ -106,7 +130,7 @@ export async function getDomainById(id) {
        WHERE d.id = $1`,
       [id],
     );
-    return result.rows[0] || null;
+    return result.rows[0] ? formatDomain(result.rows[0]) : null;
   } finally {
     client.release();
   }
@@ -116,8 +140,8 @@ export async function createDomain(data) {
   const client = await pool.connect();
   try {
     const result = await client.query(
-      `INSERT INTO domains (client_id, hosting_service_id, domain, registrar, registration_date, expiration_date, annual_cost, customer_price, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO domains (client_id, hosting_service_id, domain, registrar, registration_date, expiration_date, annual_cost, customer_price, notes, auto_renew)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
       [
         data.clientId,
@@ -129,6 +153,7 @@ export async function createDomain(data) {
         data.annualCost,
         data.customerPrice,
         data.notes,
+        data.autoRenew ?? false,
       ],
     );
     return getDomainById(result.rows[0].id);

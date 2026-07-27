@@ -4,7 +4,7 @@
 // Reglas de acceso:
 //   role === "cliente"         → portal normal con user.clientId
 //   staff con clientId         → portal de ese cliente (uso interno)
-//   staff sin clientId         → modo demo con DEMO_CLIENT_ID + aviso
+//   staff sin clientId         → redirige a /clientes (no hay modo demo)
 //   sin autenticación          → redirige a /login
 // ============================================================
 
@@ -20,16 +20,13 @@ import {
   LifeBuoy,
   User,
   Loader2,
-  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { AuthProvider, useAuth, type AuthUser } from "@/lib/auth";
-import { useClient } from "@/lib/queries";
-
-// Para subrutas del portal (portal.datos, portal.dominios, etc)
-// En desarrollo, DEMO_CLIENT_ID permite testing sin datos reales
-export const DEMO_CLIENT_ID = import.meta.env.PROD ? null : "c3";
+import { useMyClient } from "@/lib/queries";
+import { Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/portal")({
   head: () => ({ meta: [{ title: "Portal del cliente — Bitlogic" }] }),
@@ -49,6 +46,7 @@ function PortalLayout() {
   return (
     <AuthProvider>
       <PortalGuard />
+      <Toaster richColors position="top-right" />
     </AuthProvider>
   );
 }
@@ -56,7 +54,7 @@ function PortalLayout() {
 /**
  * Guard: verifica sesión y acceso al portal.
  * - Sin sesión → /login
- * - Con sesión → decide si mostrar demo notice o rechazar sin clientId en prod
+ * - Staff sin cliente vinculado → /clientes (no hay modo demo)
  */
 function PortalGuard() {
   const { user, loading } = useAuth();
@@ -69,14 +67,15 @@ function PortalGuard() {
   }, [loading, user, navigate]);
 
   useEffect(() => {
-    // En producción, requiere clientId real (no permitir demo)
-    if (!loading && user && import.meta.env.PROD) {
+    if (!loading && user) {
       const isCliente = user.role === "cliente";
       const hasClientId = Boolean(user.clientId);
 
       if (!isCliente && !hasClientId) {
-        navigate({ to: "/", replace: true });
-        return;
+        toast.error(
+          "Este usuario no tiene un cliente vinculado. Creá un acceso de portal desde la ficha del cliente en Usuarios y permisos.",
+        );
+        navigate({ to: "/clientes" as any, replace: true });
       }
     }
   }, [loading, user, navigate]);
@@ -96,20 +95,16 @@ function PortalGuard() {
 
   const isCliente = user.role === "cliente";
   const hasClientId = Boolean(user.clientId);
+  if (!isCliente && !hasClientId) return null; // redirigiendo a /clientes
 
-  // Staff sin clientId vinculado → modo demo explícito (solo en DEV)
-  const isDemoMode = !import.meta.env.PROD && !isCliente && !hasClientId;
-
-  return <PortalContent user={user} isDemoMode={isDemoMode} />;
+  return <PortalContent user={user} />;
 }
 
-function PortalContent({ user, isDemoMode }: { user: AuthUser; isDemoMode: boolean }) {
+function PortalContent({ user }: { user: AuthUser }) {
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const isStaff = user.role !== "cliente";
 
-  // Usar clientId real del usuario
-  const clientId = user.clientId;
-  const { data: client, isLoading: clientLoading } = useClient(clientId);
+  const { data: client, isLoading: clientLoading } = useMyClient();
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -168,22 +163,6 @@ function PortalContent({ user, isDemoMode }: { user: AuthUser; isDemoMode: boole
               <ArrowLeft className="h-4 w-4" /> Volver al admin
             </Link>
           </Button>
-        )}
-
-        {/* Aviso de modo demo (staff sin clientId vinculado) */}
-        {isDemoMode && (
-          <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <div>
-              <span className="font-medium">Modo demo:</span> tu usuario no tiene un cliente
-              vinculado. Se muestra el cliente de ejemplo como referencia. Para vincular un cliente
-              real, editá el usuario desde{" "}
-              <Link to="/usuarios" className="underline hover:no-underline">
-                Usuarios y permisos
-              </Link>
-              .
-            </div>
-          </div>
         )}
 
         <Outlet />

@@ -876,33 +876,22 @@ function ArchitecturePage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Capa frontend lista para conectar</CardTitle>
+              <CardTitle className="text-base">Capa frontend conectada al backend real</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm text-muted-foreground">
               <p>
                 <code className="rounded-md bg-muted/50 px-1.5 py-0.5 text-xs">
                   src/lib/api-client.ts
                 </code>{" "}
-                ya expone los namespaces <code>authApi</code>, <code>clientsApi</code>,{" "}
+                expone los namespaces <code>authApi</code>, <code>clientsApi</code>,{" "}
                 <code>hostingApi</code>, <code>plansApi</code>,<code> domainsApi</code>,{" "}
                 <code>paymentsApi</code>, <code>noticesApi</code>, <code>supportApi</code>,
-                <code> tasksApi</code>, <code>automationsApi</code>, <code>dashboardApi</code> y{" "}
-                <code>operationsApi</code>.
+                <code> tasksApi</code> y <code>dashboardApi</code>.
               </p>
               <p>
-                Cada función está implementada como mock que lee desde{" "}
-                <code className="rounded-md bg-muted/50 px-1.5 py-0.5 text-xs">
-                  src/lib/repositories.ts
-                </code>
-                . Para activar el backend real basta con descomentar la línea{" "}
-                <code>// TODO: return request(...)</code> de cada método y configurar{" "}
-                <code>VITE_API_BASE_URL</code>.
-              </p>
-              <p>
-                Los repositorios mock (<code>clientRepository</code>, <code>hostingRepository</code>
-                , <code>domainRepository</code>, <code>paymentRepository</code>,{" "}
-                <code>supportRepository</code>, <code>taskRepository</code>) replican la interfaz de
-                un DAO contra PostgreSQL, por lo que los consumidores no cambian al hacer el switch.
+                Cada función llama a <code>request(...)</code> contra el backend Express real
+                (definido en <code>VITE_API_BASE_URL</code>), con manejo de refresh de token JWT
+                incluido. No quedan repositorios ni datos mock en el frontend.
               </p>
             </CardContent>
           </Card>

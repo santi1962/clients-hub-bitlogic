@@ -1,8 +1,5 @@
 /**
- * React Query hooks para entidades reales (Fase 2A).
- *
- * Solo clients, plans y hosting services están conectados al backend.
- * El resto sigue usando mocks desde mock-data.ts / repositories.ts.
+ * React Query hooks — todas las entidades conectadas al backend real.
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -24,6 +21,8 @@ import {
   type DomainFilters,
   type SupportFilters,
   type TaskFilters,
+  usersApi,
+  portalApi,
 } from "./api-client";
 import type { HostingServiceFull } from "./api-mappers";
 
@@ -150,10 +149,7 @@ export function useCreatePlan() {
 export function useDeletePlan() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => {
-      // Placeholder: simulamos la eliminación
-      return Promise.resolve();
-    },
+    mutationFn: (id: string) => plansApi.remove(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.plans.list() });
       toast.success("Plan eliminado");
@@ -245,6 +241,19 @@ export function useCreateService() {
   });
 }
 
+export function useUpdateService(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: Record<string, unknown>) => hostingApi.update(id, patch),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["services"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      toast.success(`Servicio ${data.domain} actualizado`);
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al actualizar servicio"),
+  });
+}
+
 export function useDeleteService() {
   const qc = useQueryClient();
   return useMutation({
@@ -307,6 +316,36 @@ export function useMarkPaymentPaid() {
   });
 }
 
+export function useUpdatePayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) =>
+      paymentsApi.update(id, patch),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["payments"] });
+      qc.invalidateQueries({ queryKey: ["billing"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      toast.success("Pago actualizado correctamente");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al actualizar pago"),
+  });
+}
+
+export function useDeletePayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => paymentsApi.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["payments"] });
+      qc.invalidateQueries({ queryKey: ["notices"] });
+      qc.invalidateQueries({ queryKey: ["billing"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      toast.success("Pago eliminado correctamente");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al eliminar pago"),
+  });
+}
+
 // ─────────────────────────────────────────────────────────────
 // NOTICES
 // ─────────────────────────────────────────────────────────────
@@ -364,6 +403,19 @@ export function useCancelNotice() {
       toast.warning("Aviso cancelado");
     },
     onError: (err: Error) => toast.error(err.message ?? "Error"),
+  });
+}
+
+export function useDeleteNotice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => noticesApi.remove(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["notices"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      toast.success("Aviso eliminado");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al eliminar aviso"),
   });
 }
 
@@ -576,6 +628,18 @@ export function useCloseTicket(id: string) {
   });
 }
 
+export function useDeleteTicket(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => supportApi.deleteTicket(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["support"] });
+      toast.success("Ticket eliminado");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al eliminar ticket"),
+  });
+}
+
 // ─────────────────────────────────────────────────────────────
 // INTERNAL TASKS
 // ─────────────────────────────────────────────────────────────
@@ -629,9 +693,9 @@ export function useDeleteTask() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tasks"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
-      toast.success("Tarea cancelada");
+      toast.success("Tarea eliminada");
     },
-    onError: (err: Error) => toast.error(err.message ?? "Error al cancelar tarea"),
+    onError: (err: Error) => toast.error(err.message ?? "Error al eliminar tarea"),
   });
 }
 
@@ -665,22 +729,68 @@ export function useReopenTask(id: string) {
 export type { HostingServiceFull };
 
 // ─────────────────────────────────────────────────────────────
+// PORTAL USERS
+// ─────────────────────────────────────────────────────────────
+export function usePortalUsers() {
+  return useQuery({
+    queryKey: ["portalUsers"],
+    queryFn: () => usersApi.listPortalUsers(),
+    staleTime: 60_000,
+  });
+}
+
+export function useCreatePortalUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { clientId: string; name: string; email: string; password: string }) =>
+      usersApi.createPortalUser(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["portalUsers"] });
+      toast.success("Acceso al portal creado");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al crear acceso"),
+  });
+}
+
+export function useResetUserPassword() {
+  return useMutation({
+    mutationFn: ({ userId, newPassword }: { userId: string; newPassword: string }) =>
+      usersApi.resetPassword(userId, newPassword),
+    onSuccess: () => toast.success("Contraseña restablecida"),
+    onError: (err: Error) => toast.error(err.message ?? "Error al restablecer contraseña"),
+  });
+}
+
+export function useDeletePortalUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => usersApi.deletePortalUser(userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["portalUsers"] });
+      toast.success("Acceso al portal eliminado");
+    },
+    onError: (err: Error) => toast.error(err.message ?? "Error al eliminar acceso"),
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
 // SETTINGS
 // ─────────────────────────────────────────────────────────────
 import { settingsApi } from "./api-client";
 
 const createSettingsHooks = (section: string) => {
+  const api = settingsApi as Record<string, (...args: any[]) => Promise<any>>;
   const useGet = () =>
     useQuery({
       queryKey: ["settings", section],
-      queryFn: () => settingsApi[`get${section.charAt(0).toUpperCase()}${section.slice(1)}`](),
+      queryFn: () => api[`get${section.charAt(0).toUpperCase()}${section.slice(1)}`](),
     });
 
   const useUpdate = () => {
     const qc = useQueryClient();
     return useMutation({
       mutationFn: (data: Record<string, any>) =>
-        settingsApi[`update${section.charAt(0).toUpperCase()}${section.slice(1)}`](data),
+        api[`update${section.charAt(0).toUpperCase()}${section.slice(1)}`](data),
       onSuccess: () => {
         qc.invalidateQueries({ queryKey: ["settings", section] });
         toast.success("Configuración guardada");
@@ -775,32 +885,65 @@ export function useEmailSettings() {
   });
 }
 
-export function useUpdateEmailSettings() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: Record<string, any>) => settingsApi.updateEmail(data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["settings", "email"] });
-      toast.success("Configuración guardada");
-    },
-    onError: (err: Error) => toast.error(err.message ?? "Error al guardar"),
-  });
-}
-
-export function useWhatsappSettings() {
+// ─────────────────────────────────────────────────────────────
+// PORTAL (cliente-facing)
+// ─────────────────────────────────────────────────────────────
+export function useMyClient() {
   return useQuery({
-    queryKey: ["settings", "whatsapp"],
-    queryFn: () => settingsApi.getWhatsapp(),
+    queryKey: ["portal", "me"],
+    queryFn: () => portalApi.getMyClient(),
+    staleTime: 30_000,
   });
 }
 
-export function useUpdateWhatsappSettings() {
+export function useMyServices() {
+  return useQuery({
+    queryKey: ["portal", "services"],
+    queryFn: () => portalApi.getMyServices(),
+    staleTime: 30_000,
+  });
+}
+
+export function useMyDomains() {
+  return useQuery({
+    queryKey: ["portal", "domains"],
+    queryFn: () => portalApi.getMyDomains(),
+    staleTime: 30_000,
+  });
+}
+
+export function useMyPayments() {
+  return useQuery({
+    queryKey: ["portal", "payments"],
+    queryFn: () => portalApi.getMyPayments(),
+    staleTime: 30_000,
+  });
+}
+
+export function useMyNotices() {
+  return useQuery({
+    queryKey: ["portal", "notices"],
+    queryFn: () => portalApi.getMyNotices(),
+    staleTime: 30_000,
+  });
+}
+
+export function useMyTickets() {
+  return useQuery({
+    queryKey: ["portal", "tickets"],
+    queryFn: () => portalApi.getMyTickets(),
+    staleTime: 15_000,
+  });
+}
+
+export function useUpdateMyProfile() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: Record<string, any>) => settingsApi.updateWhatsapp(data),
+    mutationFn: (data: { name?: string; company?: string; phone?: string }) =>
+      portalApi.updateMyProfile(data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["settings", "whatsapp"] });
-      toast.success("Configuración guardada");
+      qc.invalidateQueries({ queryKey: ["portal", "me"] });
+      toast.success("Datos actualizados correctamente");
     },
     onError: (err: Error) => toast.error(err.message ?? "Error al guardar"),
   });

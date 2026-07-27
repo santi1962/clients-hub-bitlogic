@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AlertCircle, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
-import { getAccessToken } from "@/lib/api-client";
+import { getAccessToken, request } from "@/lib/api-client";
 
 export const Route = createFileRoute("/_admin/diagnostico")({
   head: () => ({ meta: [{ title: "Diagnóstico — Bitlogic" }] }),
@@ -94,11 +94,7 @@ function DiagnosticoPage() {
   async function loadStatus() {
     try {
       setLoading(true);
-      const res = await fetch("/api/system/status", {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) throw new Error("Failed to load system status");
-      const data = await res.json();
+      const data = await request<SystemStatus>("/system/status");
       setStatus(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");

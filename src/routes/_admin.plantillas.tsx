@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,8 +7,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/breadcrumbs";
-import { FileText, Save, Eye } from "lucide-react";
+import { FileText, Save, Eye, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { settingsApi } from "@/lib/api-client";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/_admin/plantillas")({
   head: () => ({ meta: [{ title: "Plantillas — Bitlogic" }] }),
@@ -72,11 +74,48 @@ function TemplatesPage() {
   const [active, setActive] = useState<Template>(TEMPLATES[0]);
   const [subject, setSubject] = useState(active.subject);
   const [body, setBody] = useState(active.body);
+  const [saving, setSaving] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    settingsApi.getTemplates().then((saved) => {
+      if (Array.isArray(saved) && saved.length > 0) {
+        const map = Object.fromEntries(saved.map((t) => [t.id, t]));
+        TEMPLATES.forEach((t) => {
+          if (map[t.id]) {
+            t.subject = map[t.id].subject;
+            t.body = map[t.id].body;
+          }
+        });
+        const first = TEMPLATES[0];
+        setActive(first);
+        setSubject(first.subject);
+        setBody(first.body);
+      }
+    }).catch(() => {});
+  }, []);
 
   const select = (t: Template) => {
     setActive(t);
     setSubject(t.subject);
     setBody(t.body);
+    setDirty(false);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await settingsApi.updateTemplate(active.id, { subject, body });
+      active.subject = subject;
+      active.body = body;
+      setDirty(false);
+      toast.success(`${active.name} guardada`);
+    } catch (err: any) {
+      toast.error(err.message ?? "Error al guardar");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -127,14 +166,14 @@ function TemplatesPage() {
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
               <Label>Asunto</Label>
-              <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
+              <Input value={subject} onChange={(e) => { setSubject(e.target.value); setDirty(true); }} />
             </div>
             <div className="space-y-1.5">
               <Label>Cuerpo del mensaje</Label>
               <Textarea
                 rows={12}
                 value={body}
-                onChange={(e) => setBody(e.target.value)}
+                onChange={(e) => { setBody(e.target.value); setDirty(true); }}
                 className="font-mono text-xs"
               />
             </div>
@@ -159,19 +198,39 @@ function TemplatesPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => toast.info("Previsualización (placeholder)")}
+                onClick={() => setPreviewOpen(true)}
               >
                 <Eye className="mr-2 h-4 w-4" />
                 Previsualizar
               </Button>
-              <Button size="sm" onClick={() => toast.success(`${active.name} guardada`)}>
-                <Save className="mr-2 h-4 w-4" />
+              <Button size="sm" onClick={handleSave} disabled={saving || !dirty}>
+                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 Guardar plantilla
               </Button>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Previsualización — {active.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <div>
+              <p className="text-xs text-muted-foreground font-medium mb-1">Asunto</p>
+              <p className="rounded border bg-muted/30 px-3 py-2 font-medium">{subject}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground font-medium mb-1">Cuerpo</p>
+              <pre className="rounded border bg-muted/30 px-3 py-2 text-xs whitespace-pre-wrap font-sans leading-relaxed">
+                {body}
+              </pre>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

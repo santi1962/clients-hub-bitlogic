@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+﻿import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Eye, AlertTriangle } from "lucide-react";
-import { formatDate, lastPaymentForClient } from "@/lib/mock-data";
+import { formatDate } from "@/lib/format";
 import { useClients, useCreateClient } from "@/lib/queries";
 
 export const Route = createFileRoute("/_admin/clientes/")({
@@ -174,10 +174,7 @@ function ClientsPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                clients.map((c) => {
-                  // lastPaymentForClient usa mock data — muestra "—" para clientes reales (UUID ids)
-                  const lp = lastPaymentForClient(c.id);
-                  return (
+                clients.map((c) => (
                     <TableRow key={c.id}>
                       <TableCell className="font-medium">{c.name}</TableCell>
                       <TableCell>{c.company}</TableCell>
@@ -187,8 +184,8 @@ function ClientsPage() {
                         <StatusBadge status={c.status} />
                       </TableCell>
                       <TableCell className="text-center">{c.servicesCount ?? 0}</TableCell>
-                      <TableCell>{formatDate(lp?.paidAt)}</TableCell>
-                      <TableCell>{formatDate(c.nextDueDate)}</TableCell>
+                      <TableCell>{formatDate(c.lastPaymentDate) ?? "—"}</TableCell>
+                      <TableCell>{formatDate(c.nextDueDate) ?? "—"}</TableCell>
                       <TableCell className="text-right">
                         <Button asChild size="sm" variant="ghost">
                           <Link to="/clientes/$id" params={{ id: c.id }}>
@@ -197,8 +194,7 @@ function ClientsPage() {
                         </Button>
                       </TableCell>
                     </TableRow>
-                  );
-                })
+                  ))
               )}
             </TableBody>
           </Table>

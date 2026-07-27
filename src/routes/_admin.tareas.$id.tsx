@@ -1,13 +1,19 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+﻿import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/status-badge";
 import { Breadcrumbs } from "@/components/breadcrumbs";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, RotateCcw, Trash2 } from "lucide-react";
-import { formatDate } from "@/lib/mock-data";
-import { useTask, useCompleteTask, useReopenTask, useDeleteTask } from "@/lib/queries";
-import { cn } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { AlertTriangle, ArrowLeft, Loader2, Trash2 } from "lucide-react";
+import { formatDate } from "@/lib/format";
+import { useTask, useUpdateTask, useDeleteTask } from "@/lib/queries";
+import { taskStatusToDb } from "@/lib/api-mappers";
 
 export const Route = createFileRoute("/_admin/tareas/$id")({
   head: () => ({ meta: [{ title: "Tarea — Bitlogic" }] }),
@@ -18,8 +24,8 @@ export const Route = createFileRoute("/_admin/tareas/$id")({
 function TaskDetail() {
   const { id } = Route.useParams();
   const { data: task, isLoading, isError } = useTask(id);
-  const completeTaskMutation = useCompleteTask(id);
-  const reopenTaskMutation = useReopenTask(id);
+  const navigate = useNavigate();
+  const updateTaskMutation = useUpdateTask(id);
   const deleteTaskMutation = useDeleteTask();
 
   if (isLoading) {
@@ -44,8 +50,6 @@ function TaskDetail() {
     );
   }
 
-  const isCompleted = task.status === "completada";
-  const isCancelled = task.status === "cancelada";
 
   return (
     <div className="space-y-6">
@@ -63,37 +67,38 @@ function TaskDetail() {
             <p className="text-sm text-muted-foreground">Creada {formatDate(task.createdAt)}</p>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {!isCompleted && !isCancelled && (
-            <Button onClick={() => completeTaskMutation.mutate()}>
-              {completeTaskMutation.isPending ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={task.status}
+            onValueChange={(v) => updateTaskMutation.mutate({ status: taskStatusToDb(v) })}
+            disabled={updateTaskMutation.isPending}
+          >
+            <SelectTrigger className="w-[160px]">
+              {updateTaskMutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <CheckCircle2 className="h-4 w-4" />
+                <SelectValue />
               )}
-              Completar
-            </Button>
-          )}
-          {isCompleted && (
-            <Button variant="outline" onClick={() => reopenTaskMutation.mutate()}>
-              {reopenTaskMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RotateCcw className="h-4 w-4" />
-              )}
-              Reabrir
-            </Button>
-          )}
-          {!isCancelled && (
-            <Button variant="destructive" onClick={() => deleteTaskMutation.mutate(id)}>
-              {deleteTaskMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="h-4 w-4" />
-              )}
-              Cancelar
-            </Button>
-          )}
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="pendiente">Pendiente</SelectItem>
+              <SelectItem value="en_proceso">En proceso</SelectItem>
+              <SelectItem value="completada">Completada</SelectItem>
+              <SelectItem value="cancelada">Cancelada</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => deleteTaskMutation.mutate(id, { onSuccess: () => navigate({ to: "/tareas" }) })}
+          >
+            {deleteTaskMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+            Eliminar
+          </Button>
         </div>
       </div>
 

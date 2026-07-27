@@ -16,7 +16,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { AlertTriangle, ArrowLeft, RotateCw, Trash2, Loader2, Mail } from "lucide-react";
 import { useState } from "react";
-import { formatDate, formatMoney } from "@/lib/mock-data";
+import { formatDate, formatMoney } from "@/lib/format";
 import { useDomain, useRenewDomain, useDeleteDomain, useSendDomainReminder } from "@/lib/queries";
 
 export const Route = createFileRoute("/_admin/dominios/$id")({

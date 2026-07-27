@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { AlertCircle, CheckCircle, Loader2, Info } from "lucide-react";
+import { request } from "@/lib/api-client";
 
 export function SetupCompany() {
   const [loading, setLoading] = useState(false);
@@ -30,18 +31,15 @@ export function SetupCompany() {
     const loadSettings = async () => {
       try {
         setLoading(true);
-        const res = await fetch("/api/settings/company");
-        if (res.ok) {
-          const data = await res.json();
-          setFormData({
-            companyName: data.companyName || "",
-            contactEmail: data.contactEmail || "",
-            phone: data.phone || "",
-            taxId: data.taxId || "",
-            address: data.address || "",
-            currency: data.currency || "ARS",
-          });
-        }
+        const data = await request<Record<string, string>>("/settings/company");
+        setFormData({
+          companyName: data.companyName || "",
+          contactEmail: data.contactEmail || "",
+          phone: data.phone || "",
+          taxId: data.taxId || "",
+          address: data.address || "",
+          currency: data.currency || "ARS",
+        });
       } catch (err) {
         console.error("Error loading settings:", err);
       } finally {
@@ -73,17 +71,7 @@ export function SetupCompany() {
     setSuccess(false);
 
     try {
-      const res = await fetch("/api/settings/company", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error?.message || "Error al guardar la configuración");
-      }
-
+      await request("/settings/company", { method: "PUT", body: formData });
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {

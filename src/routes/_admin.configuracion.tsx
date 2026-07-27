@@ -9,10 +9,11 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/breadcrumbs";
-import { Building2, FileText, Server, Wallet, Mail, MessageCircle, Save, Loader2 } from "lucide-react";
+import { Building2, FileText, Server, Wallet, Mail, Save, Loader2 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { useState, useEffect } from "react";
-import { emailApi, hestiaApi } from "@/lib/api-client";
+import { useState, useEffect, useRef } from "react";
+import { emailApi, hestiaApi, settingsApi, API_BASE_URL } from "@/lib/api-client";
 import {
   useCompanySettings,
   useUpdateCompanySettings,
@@ -23,9 +24,6 @@ import {
   usePaymentSettings,
   useUpdatePaymentSettings,
   useEmailSettings,
-  useUpdateEmailSettings,
-  useWhatsappSettings,
-  useUpdateWhatsappSettings,
 } from "@/lib/queries";
 
 export const Route = createFileRoute("/_admin/configuracion")({
@@ -68,6 +66,9 @@ function SettingsPage() {
     taxId: "",
     address: "",
   });
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   // Billing
   const { data: billingData } = useBillingSettings();
@@ -103,51 +104,28 @@ function SettingsPage() {
     manualPaymentEnabled: true,
   });
 
-  // Email
+  // Email (solo lectura — se edita en backend/.env)
   const { data: emailData } = useEmailSettings();
-  const updateEmail = useUpdateEmailSettings();
-  const [email, setEmail] = useState({
-    smtpHost: "",
-    smtpPort: 587,
-    smtpUser: "",
-    smtpPassword: "",
-    fromName: "",
-    fromEmail: "",
-  });
-
-  // WhatsApp
-  const { data: whatsappData } = useWhatsappSettings();
-  const updateWhatsapp = useUpdateWhatsappSettings();
-  const [whatsapp, setWhatsapp] = useState({
-    contactNumber: "",
-    defaultMessage: "",
-    enabled: false,
-  });
 
   // Load data into form when API responds
   useEffect(() => {
-    if (companyData) setCompany(companyData);
+    if (companyData) {
+      setCompany(companyData as typeof company);
+      setLogoUrl((companyData as any).logoUrl ?? null);
+    }
   }, [companyData]);
 
   useEffect(() => {
-    if (billingData) setBilling(billingData);
+    if (billingData) setBilling(billingData as typeof billing);
   }, [billingData]);
 
   useEffect(() => {
-    if (hostingData) setHosting(hostingData);
+    if (hostingData) setHosting(hostingData as typeof hosting);
   }, [hostingData]);
 
   useEffect(() => {
-    if (paymentsData) setPayments(paymentsData);
+    if (paymentsData) setPayments(paymentsData as typeof payments);
   }, [paymentsData]);
-
-  useEffect(() => {
-    if (emailData) setEmail(emailData);
-  }, [emailData]);
-
-  useEffect(() => {
-    if (whatsappData) setWhatsapp(whatsappData);
-  }, [whatsappData]);
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -157,7 +135,7 @@ function SettingsPage() {
       />
 
       <Tabs defaultValue="empresa">
-        <TabsList className="grid grid-cols-3 lg:grid-cols-6 w-full lg:w-auto">
+        <TabsList className="grid grid-cols-3 lg:grid-cols-5 w-full lg:w-auto">
           <TabsTrigger value="empresa">
             <Building2 className="h-3.5 w-3.5 mr-1.5" />
             Empresa
@@ -177,10 +155,6 @@ function SettingsPage() {
           <TabsTrigger value="emails">
             <Mail className="h-3.5 w-3.5 mr-1.5" />
             Emails
-          </TabsTrigger>
-          <TabsTrigger value="whatsapp">
-            <MessageCircle className="h-3.5 w-3.5 mr-1.5" />
-            WhatsApp
           </TabsTrigger>
         </TabsList>
 
@@ -218,11 +192,49 @@ function SettingsPage() {
               <div className="md:col-span-2 space-y-1.5">
                 <Label>Logo</Label>
                 <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">B</div>
-                  <Button variant="outline" size="sm" onClick={() => toast.info("Subir logo (placeholder)")}>
-                    Cambiar logo
+                  {logoUrl ? (
+                    <img
+                      src={logoUrl.startsWith("/api") ? `${API_BASE_URL.replace("/api", "")}${logoUrl}` : logoUrl}
+                      alt="Logo"
+                      className="h-12 w-12 rounded-lg object-contain border border-border/60 bg-card"
+                    />
+                  ) : (
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-lg">
+                      {company.companyName?.[0]?.toUpperCase() || "B"}
+                    </div>
+                  )}
+                  <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setUploadingLogo(true);
+                      try {
+                        const { logoUrl: url } = await settingsApi.uploadLogo(file);
+                        setLogoUrl(url);
+                        toast.success("Logo actualizado");
+                      } catch (err: any) {
+                        toast.error(err.message ?? "Error al subir logo");
+                      } finally {
+                        setUploadingLogo(false);
+                        e.target.value = "";
+                      }
+                    }}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={uploadingLogo}
+                    onClick={() => logoInputRef.current?.click()}
+                  >
+                    {uploadingLogo ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                    {uploadingLogo ? "Subiendo…" : "Cambiar logo"}
                   </Button>
                 </div>
+                <p className="text-xs text-muted-foreground">PNG, JPG o SVG · máx. 2 MB</p>
               </div>
             </Grid>
             <SaveBar onSave={() => updateCompany.mutate(company)} isLoading={updateCompany.isPending} />
@@ -387,80 +399,58 @@ function SettingsPage() {
 
         {/* EMAILS */}
         <TabsContent value="emails">
-          <SectionCard title="Servidor SMTP">
+          <SectionCard
+            title="Servidor SMTP"
+            desc="Configuración real leída del servidor. Se edita en backend/.env y requiere reiniciar el servidor — no desde acá, por seguridad (mismo criterio que JWT, base de datos y MercadoPago)."
+          >
             <Grid>
-              <Field
-                label="SMTP host"
-                value={email.smtpHost}
-                onChange={(v) => setEmail({ ...email, smtpHost: v })}
-              />
-              <Field
-                label="SMTP port"
-                type="number"
-                value={email.smtpPort.toString()}
-                onChange={(v) => setEmail({ ...email, smtpPort: parseInt(v) || 587 })}
-              />
-              <Field
-                label="Usuario"
-                value={email.smtpUser}
-                onChange={(v) => setEmail({ ...email, smtpUser: v })}
-              />
-              <Field
-                label="Contraseña"
-                type="password"
-                value={email.smtpPassword}
-                onChange={(v) => setEmail({ ...email, smtpPassword: v })}
-              />
-              <Field
-                label="Remitente (Name)"
-                value={email.fromName}
-                onChange={(v) => setEmail({ ...email, fromName: v })}
-              />
-              <Field
-                label="Remitente (Email)"
-                type="email"
-                value={email.fromEmail}
-                onChange={(v) => setEmail({ ...email, fromEmail: v })}
-              />
+              <div className="space-y-1.5">
+                <Label>SMTP host</Label>
+                <Input value={emailData?.smtpHost ?? ""} readOnly disabled />
+              </div>
+              <div className="space-y-1.5">
+                <Label>SMTP port</Label>
+                <Input value={emailData?.smtpPort ?? ""} readOnly disabled />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Usuario</Label>
+                <Input value={emailData?.smtpUser ?? ""} readOnly disabled />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Remitente</Label>
+                <Input
+                  value={emailData ? `${emailData.fromName} <${emailData.fromEmail}>` : ""}
+                  readOnly
+                  disabled
+                />
+              </div>
+              <div className="md:col-span-2 flex items-center justify-between rounded-lg border border-border/60 p-3">
+                <div>
+                  <p className="text-sm font-medium">Estado</p>
+                  <p className="text-xs text-muted-foreground">
+                    {emailData?.smtpConfigured
+                      ? "Credenciales cargadas — el envío real depende de que sean correctas"
+                      : "Faltan credenciales SMTP en .env — el envío de emails va a fallar"}
+                  </p>
+                </div>
+                <Badge variant={emailData?.smtpConfigured ? "default" : "outline"}>
+                  {emailData?.smtpConfigured ? "Configurado" : "Sin configurar"}
+                </Badge>
+              </div>
             </Grid>
             <div className="flex gap-2 pt-2">
               <Button variant="outline" size="sm" onClick={testEmailConfig}>
                 Probar envío
               </Button>
             </div>
-            <SaveBar onSave={() => updateEmail.mutate(email)} isLoading={updateEmail.isPending} />
             <p className="text-xs text-muted-foreground pt-2">
               Las plantillas se editan en <a href="/plantillas" className="text-primary underline-offset-2 hover:underline">Plantillas</a>.
+              Los recordatorios de WhatsApp se configuran en{" "}
+              <Link to="/automatizaciones" className="text-primary underline-offset-2 hover:underline">
+                Automatizaciones
+              </Link>
+              .
             </p>
-          </SectionCard>
-        </TabsContent>
-
-        {/* WHATSAPP */}
-        <TabsContent value="whatsapp">
-          <SectionCard title="WhatsApp">
-            <Grid>
-              <Field
-                label="Número de contacto"
-                value={whatsapp.contactNumber}
-                onChange={(v) => setWhatsapp({ ...whatsapp, contactNumber: v })}
-              />
-              <div className="md:col-span-2 space-y-1.5">
-                <Label>Mensaje predeterminado</Label>
-                <Textarea
-                  rows={3}
-                  value={whatsapp.defaultMessage}
-                  onChange={(e) => setWhatsapp({ ...whatsapp, defaultMessage: e.target.value })}
-                />
-              </div>
-              <div className="md:col-span-2 flex items-center justify-between rounded-lg border border-dashed border-border/60 p-3">
-                <div>
-                  <p className="text-sm font-medium">Integración WhatsApp Business</p>
-                  <p className="text-xs text-muted-foreground">Requiere cuenta verificada Meta</p>
-                </div>
-                <Switch checked={whatsapp.enabled} onCheckedChange={(v) => setWhatsapp({ ...whatsapp, enabled: v })} />
-              </div>
-            </Grid>
-            <SaveBar onSave={() => updateWhatsapp.mutate(whatsapp)} isLoading={updateWhatsapp.isPending} />
           </SectionCard>
         </TabsContent>
       </Tabs>

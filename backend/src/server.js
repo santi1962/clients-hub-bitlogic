@@ -1,10 +1,12 @@
 import "dotenv/config";
+import { createServer } from "http";
 import app from "./app.js";
+import { initSocket } from "./socket.js";
 import config from "./config/index.js";
 import pool from "./db/pool.js";
+import { startWhatsApp } from "./services/whatsapp.service.js";
 
 async function start() {
-  // Verificar conexión a PostgreSQL antes de aceptar tráfico
   try {
     await pool.query("SELECT 1");
     console.log("  ✓ PostgreSQL conectado");
@@ -16,15 +18,24 @@ async function start() {
     process.exit(1);
   }
 
-  app.listen(config.port, () => {
+  const httpServer = createServer(app);
+  initSocket(httpServer);
+
+  httpServer.listen(config.port, () => {
     console.log(`\n  Bitlogic Backend`);
     console.log(`  ✓ Corriendo en http://localhost:${config.port}`);
+    console.log(`  ✓ WebSockets activos`);
     console.log(`  ✓ Entorno: ${config.nodeEnv}`);
     console.log(`  ✓ CORS origen: ${config.cors.origin}\n`);
   });
+
+  if (config.whatsapp.enabled) {
+    startWhatsApp().catch((err) => console.error("[WhatsApp] Error al iniciar:", err.message));
+  }
 }
 
 start().catch((err) => {
   console.error("Error al iniciar el servidor:", err);
   process.exit(1);
 });
+

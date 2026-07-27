@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+﻿import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Plus, Eye, Search, Server, AlertTriangle, Trash2 } from "lucide-react";
-import { formatMoney, formatDate } from "@/lib/mock-data";
+import { formatMoney, formatDate } from "@/lib/format";
 import { useServices, usePlans, useClients, useCreateService, useDeleteService } from "@/lib/queries";
 
 export const Route = createFileRoute("/_admin/servicios/")({
@@ -105,8 +105,8 @@ function ServicesPage() {
       setFormData({
         ...formData,
         planId: selectedPlanId,
-        storageTotalGb: String(plan.storageGb),
-        emailsTotal: String(plan.emailsLimit),
+        storageTotalGb: String(plan.storageGB),
+        emailsTotal: String(plan.emails),
         monthlyPrice: String(plan.monthlyPrice),
       });
     }

@@ -255,16 +255,13 @@ export const tasksService = {
   },
 
   /**
-   * Delete task (soft delete: set status to cancelled)
+   * Delete task (hard delete)
    */
   async deleteTask(id) {
-    const query = `
-      UPDATE internal_tasks
-      SET status = 'cancelled'
-      WHERE id = $1
-      RETURNING *
-    `;
-    const result = await pool.query(query, [id]);
+    const result = await pool.query(
+      `DELETE FROM internal_tasks WHERE id = $1 RETURNING *`,
+      [id],
+    );
     if (result.rows.length === 0) throw new Error("Task not found");
     return result.rows[0];
   },

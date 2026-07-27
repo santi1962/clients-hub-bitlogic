@@ -2,9 +2,9 @@
  * ============================================================
  * Bitlogic — API Client (FRONTEND ↔ BACKEND BRIDGE)
  * ------------------------------------------------------------
- * Esta capa centraliza TODAS las llamadas al backend futuro.
+ * Esta capa centraliza TODAS las llamadas al backend.
  *
- * Arquitectura objetivo:
+ * Arquitectura:
  *   Frontend (React/TanStack) ─► api-client.ts ─► Node.js + Express ─► PostgreSQL
  *                                              └► HestiaCP API
  *                                              └► MercadoPago / PayPal (webhooks)
@@ -14,33 +14,27 @@
  *   - Todas las funciones devuelven Promises tipadas.
  *   - Auth: el `accessToken` (JWT, 15min) viaja en header Authorization.
  *   - Refresh token: cookie httpOnly Secure SameSite=strict (no se toca acá).
- *   - Errores: el backend devolverá `{ error: { code, message } }` con status 4xx/5xx.
- *
- * MIENTRAS NO HAYA BACKEND: cada función está implementada con un mock
- * que lee de los repositorios locales (src/lib/repositories.ts) y simula
- * latencia. Reemplazar el cuerpo por `request(...)` cuando esté el backend.
+ *   - Errores: el backend devuelve `{ error: { code, message } }` con status 4xx/5xx.
  * ============================================================
  */
-
-import type { Client, HostingService, Plan, Payment, PaymentNotice } from "./mock-data";
-import type { Domain, Ticket, Task, AutomationRule } from "./mock-data-extra";
-import {
-  clientRepository,
-  hostingRepository,
-  planRepository,
-  paymentRepository,
-  paymentNoticeRepository,
-  domainRepository,
-  supportRepository,
-  taskRepository,
-  automationRepository,
-  type TicketMessage,
-} from "./repositories";
 
 // ------------------------------------------------------------
 // Config + helper HTTP (preparado para activar cuando exista backend)
 // ------------------------------------------------------------
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api"; // ej. https://api.bitlogic.com.ar
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api";
+
+/** Convierte una URL de adjunto de ticket al endpoint autenticado correspondiente.
+ *  Portal: /api/portal/uploads/tickets/:filename
+ *  Admin:  /api/support/uploads/:filename
+ */
+export function ticketAttachmentUrl(rawUrl: string | null | undefined, role: "portal" | "staff"): string | null {
+  if (!rawUrl) return null;
+  const filename = rawUrl.split("/").pop();
+  if (!filename) return null;
+  return role === "portal"
+    ? `${API_BASE_URL}/portal/uploads/tickets/${filename}`
+    : `${API_BASE_URL}/support/uploads/${filename}`;
+}
 
 let accessToken: string | null = null;
 export function setAccessToken(token: string | null) {
@@ -123,9 +117,6 @@ export async function request<T = unknown>(path: string, opts: RequestOpts = {})
 }
 
 // Pequeño helper para simular IO mientras estemos en modo mock.
-const mock = <T>(value: T, ms = 120): Promise<T> =>
-  new Promise((r) => setTimeout(() => r(value), ms));
-
 // ============================================================
 // AUTH
 // ============================================================
@@ -186,6 +177,14 @@ export const authApi = {
   /** GET /api/auth/me — requiere Bearer token (sí usa el interceptor de refresh) */
   async me(): Promise<AuthSession["user"]> {
     return request<AuthSession["user"]>("/auth/me");
+  },
+  /** PATCH /api/auth/profile — actualiza nombre, teléfono, notificaciones */
+  async updateProfile(data: { name?: string; phone?: string; notifications?: Record<string, boolean> }): Promise<AuthSession["user"]> {
+    return request<AuthSession["user"]>("/auth/profile", { method: "PATCH", body: data });
+  },
+  /** POST /api/auth/change-password */
+  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
+    await request("/auth/change-password", { method: "POST", body: { oldPassword, newPassword } });
   },
 };
 
@@ -347,6 +346,10 @@ export const plansApi = {
     });
     return mapPlan(raw);
   },
+
+  async remove(id: string): Promise<void> {
+    await request(`/hosting/plans/${id}`, { method: "DELETE" });
+  },
 };
 
 // ============================================================
@@ -482,6 +485,10 @@ export const paymentsApi = {
       await request<BackendPayment>(`/billing/payments/${id}/mark-paid`, { method: "POST" }),
     );
   },
+
+  async delete(id: string): Promise<void> {
+    await request<void>(`/billing/payments/${id}`, { method: "DELETE" });
+  },
 };
 
 // ============================================================
@@ -525,16 +532,31 @@ export const noticesApi = {
     );
   },
 
-  async pdf(
-    id: string,
-  ): Promise<{ id: string; noticeNumber: string; pdfUrl: string | null; message: string }> {
-    return request(`/billing/notices/${id}/pdf`, { method: "POST" });
+  async pdf(id: string): Promise<void> {
+    const token = getAccessToken();
+    const res = await fetch(`${API_BASE_URL}/billing/notices/${id}/pdf`, {
+      method: "POST",
+      credentials: "include",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error?.message ?? `HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   },
 
   async cancel(id: string): Promise<MappedNotice> {
     return mapNotice(
       await request<BackendNotice>(`/billing/notices/${id}/cancel`, { method: "POST" }),
     );
+  },
+
+  async remove(id: string): Promise<void> {
+    await request<void>(`/billing/notices/${id}`, { method: "DELETE" });
   },
 };
 
@@ -659,6 +681,10 @@ export const supportApi = {
   async closeTicket(id: string): Promise<MappedTicket> {
     return mapTicket(await request<BackendTicket>(`/support/${id}/close`, { method: "POST" }));
   },
+
+  async deleteTicket(id: string): Promise<void> {
+    await request(`/support/${id}`, { method: "DELETE" });
+  },
 };
 
 // ============================================================
@@ -731,11 +757,54 @@ export const tasksApi = {
 };
 
 // ============================================================
-// AUTOMATIONS
+// PORTAL USERS
 // ============================================================
-export const automationsApi = {
-  list: () => mock(automationRepository.findAll()), // GET   /api/automations
-  update: (id: string, patch: Partial<AutomationRule>) => mock({ id, patch }), // PATCH /api/automations/:id
+export interface PortalUserRow {
+  clientId: string;
+  clientName: string;
+  clientCompany: string | null;
+  userId: string | null;
+  email: string | null;
+  status: string | null;
+  lastLoginAt: string | null;
+  createdAt: string | null;
+}
+
+function mapPortalUserRow(raw: Record<string, unknown>): PortalUserRow {
+  return {
+    clientId: raw.client_id as string,
+    clientName: raw.client_name as string,
+    clientCompany: (raw.client_company as string) ?? null,
+    userId: (raw.user_id as string) ?? null,
+    email: (raw.email as string) ?? null,
+    status: (raw.status as string) ?? null,
+    lastLoginAt: (raw.last_login_at as string) ?? null,
+    createdAt: (raw.created_at as string) ?? null,
+  };
+}
+
+export const usersApi = {
+  async listPortalUsers(): Promise<{ data: PortalUserRow[] }> {
+    const raw = await request<{ data: Record<string, unknown>[] }>("/users/portal");
+    return { data: raw.data.map(mapPortalUserRow) };
+  },
+  async createPortalUser(data: {
+    clientId: string;
+    name: string;
+    email: string;
+    password: string;
+  }): Promise<{ id: string }> {
+    return request<{ id: string }>("/users/portal", { method: "POST", body: data });
+  },
+  async resetPassword(userId: string, newPassword: string): Promise<{ id: string }> {
+    return request<{ id: string }>(`/users/${userId}/reset-password`, {
+      method: "POST",
+      body: { newPassword },
+    });
+  },
+  async deletePortalUser(userId: string): Promise<void> {
+    await request<{ ok: boolean }>(`/users/${userId}`, { method: "DELETE" });
+  },
 };
 
 // ============================================================
@@ -750,6 +819,14 @@ export interface DashboardData {
   totalDebt: number;
   overdueNoticesCount: number;
   newClientsThisMonth: number;
+  activeDomainsCount: number;
+  dueSoonDomainsCount: number;
+  expiredDomainsCount: number;
+  openTicketsCount: number;
+  urgentTicketsCount: number;
+  pendingTasksCount: number;
+  urgentTasksCount: number;
+  overdueTasksCount: number;
   upcomingServices: {
     id: string;
     domain: string;
@@ -790,17 +867,39 @@ export interface DashboardData {
     clientCompany: string;
     serviceDomain: string | null;
   }[];
+  upcomingDomains: {
+    id: string;
+    domain: string;
+    expirationDate: string;
+    status: string;
+    clientCompany: string;
+    serviceDomain: string | null;
+  }[];
+  recentTickets: {
+    id: string;
+    ticketNumber: string;
+    subject: string;
+    status: string;
+    priority: string;
+    createdAt: string;
+    lastMessageAt: string | null;
+    clientCompany: string;
+    assignedUserName: string | null;
+  }[];
+  upcomingTasks: {
+    id: string;
+    title: string;
+    status: string;
+    priority: string;
+    dueDate: string;
+    clientName: string | null;
+    assignedUserName: string | null;
+  }[];
+  recentActivity: any[];
 }
 
 export const dashboardApi = {
   admin: () => request<DashboardData>("/dashboard/admin"),
-  client: (clientId: string) => mock({ clientId }), // GET /api/dashboard/client (futuro)
-};
-export const operationsApi = {
-  summary: () =>
-    mock({
-      /* tickets+dominios+tareas+pagos urgentes */
-    }), // GET /api/operations/summary
 };
 
 // ============================================================
@@ -873,6 +972,22 @@ export const settingsApi = {
   getCompany: () => request("/settings/company"),
   updateCompany: (data: Record<string, any>) =>
     request("/settings/company", { method: "PUT", body: data }),
+  async uploadLogo(file: File): Promise<{ logoUrl: string }> {
+    const token = getAccessToken();
+    const form = new FormData();
+    form.append("logo", file);
+    const res = await fetch(`${API_BASE_URL}/settings/company/logo`, {
+      method: "POST",
+      credentials: "include",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error?.message ?? `HTTP ${res.status}`);
+    }
+    return res.json();
+  },
   // Billing
   getBilling: () => request("/settings/billing"),
   updateBilling: (data: Record<string, any>) =>
@@ -885,14 +1000,67 @@ export const settingsApi = {
   getPayments: () => request("/settings/payments"),
   updatePayments: (data: Record<string, any>) =>
     request("/settings/payments", { method: "PUT", body: data }),
-  // Email
-  getEmail: () => request("/settings/email"),
-  updateEmail: (data: Record<string, any>) =>
-    request("/settings/email", { method: "PUT", body: data }),
-  // WhatsApp
-  getWhatsapp: () => request("/settings/whatsapp"),
-  updateWhatsapp: (data: Record<string, any>) =>
-    request("/settings/whatsapp", { method: "PUT", body: data }),
+  // Email (solo lectura — se edita en backend/.env)
+  getEmail: () =>
+    request<{
+      smtpHost: string;
+      smtpPort: number;
+      smtpUser: string;
+      smtpConfigured: boolean;
+      fromName: string;
+      fromEmail: string;
+    }>("/settings/email"),
   // Readiness
   getReadiness: () => request("/settings/readiness"),
+  // Email Templates
+  getTemplates: () => request<{ id: string; subject: string; body: string }[]>("/settings/templates"),
+  updateTemplate: (id: string, data: { subject: string; body: string }) =>
+    request("/settings/templates/" + id, { method: "PUT", body: data }),
+};
+
+// ============================================================
+// PORTAL  —  endpoints accesibles por clientes (role='cliente')
+// ============================================================
+export const mpApi = {
+  /** Crea una preferencia de pago MP y devuelve la URL de checkout */
+  async createCheckout(noticeId: string): Promise<{ checkoutUrl: string; sandboxUrl: string }> {
+    return request(`/portal/payments/checkout/${noticeId}`, { method: "POST" });
+  },
+};
+
+export const portalApi = {
+  async getMyClient(): Promise<ReturnType<typeof mapClient>> {
+    const raw = await request<BackendClient>("/portal/me");
+    return mapClient(raw);
+  },
+
+  async getMyServices(): Promise<{ data: ReturnType<typeof mapService>[] }> {
+    const raw = await request<{ data: BackendService[] }>("/portal/services");
+    return { data: raw.data.map(mapService) };
+  },
+
+  async getMyDomains(): Promise<{ data: MappedDomain[] }> {
+    const raw = await request<{ data: BackendDomain[] }>("/portal/domains");
+    return { data: raw.data.map(mapDomain) };
+  },
+
+  async getMyPayments(): Promise<{ data: MappedPayment[] }> {
+    const raw = await request<{ data: BackendPayment[] }>("/portal/payments");
+    return { data: raw.data.map(mapPayment) };
+  },
+
+  async getMyNotices(): Promise<{ data: MappedNotice[] }> {
+    const raw = await request<{ data: BackendNotice[] }>("/portal/notices");
+    return { data: raw.data.map(mapNotice) };
+  },
+
+  async updateMyProfile(data: { name?: string; company?: string; phone?: string }): Promise<ReturnType<typeof mapClient>> {
+    const raw = await request<BackendClient>("/portal/me", { method: "PATCH", body: data });
+    return mapClient(raw);
+  },
+
+  async getMyTickets(): Promise<{ data: MappedTicket[] }> {
+    const raw = await request<{ data: BackendTicket[] }>("/portal/tickets");
+    return { data: raw.data.map(mapTicket) };
+  },
 };

@@ -1,4 +1,12 @@
 import pool from "../db/pool.js";
+import PDFDocument from "pdfkit";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
+import { Jimp } from "jimp";
+import { getCompanySettings } from "./settings.service.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ─────────────────────────────────────────────────────────────
 // Formatters
@@ -248,6 +256,18 @@ export async function cancelNotice(id) {
   return getNoticeById(id);
 }
 
+export async function deleteNotice(id) {
+  const { rows } = await pool.query(
+    `DELETE FROM payment_notices WHERE id = $1 AND status != 'paid' RETURNING id`,
+    [id],
+  );
+  if (!rows[0]) {
+    const e = new Error("Aviso no encontrado o no se puede eliminar un aviso ya pagado");
+    e.status = 404;
+    throw e;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 // Payments
 // ─────────────────────────────────────────────────────────────
@@ -436,6 +456,33 @@ export async function markPaid(id) {
   }
 }
 
+export async function deletePayment(id) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(`DELETE FROM payments WHERE id = $1 RETURNING *`, [id]);
+    if (!rows[0]) {
+      const e = new Error("Pago no encontrado");
+      e.status = 404;
+      throw e;
+    }
+
+    // Revertir aviso relacionado si quedó marcado como pagado por este pago
+    if (rows[0].payment_notice_id && rows[0].status === "paid") {
+      await client.query(
+        `UPDATE payment_notices SET status = 'pending', paid_at = NULL WHERE id = $1 AND status = 'paid'`,
+        [rows[0].payment_notice_id],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 // Summaries
 // ─────────────────────────────────────────────────────────────
@@ -576,4 +623,147 @@ export async function getGlobalSummary() {
       status: p.status,
     })),
   };
+}
+
+async function loadTrimmedLogoBuffer(company) {
+  if (!company?.logoUrl) return null;
+  const filename = path.basename(company.logoUrl);
+  const candidate = path.join(__dirname, "../../uploads/logos", filename);
+  if (!fs.existsSync(candidate)) return null;
+  try {
+    const img = await Jimp.read(candidate);
+    await img.autocrop();
+    const buffer = await img.getBuffer("image/png");
+    return { buffer, width: img.width, height: img.height };
+  } catch {
+    return null; // logo corrupto/ilegible -> se usa el fallback de texto
+  }
+}
+
+export async function generateNoticePdf(noticeId) {
+  const notice = await getNoticeById(noticeId);
+  const company = await getCompanySettings();
+  const logo = await loadTrimmedLogoBuffer(company);
+
+  const PAGE_W = 595.28; // A4
+  const MARGIN = 50;
+  const CONTENT_W = PAGE_W - MARGIN * 2; // 495.28
+
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: MARGIN, size: "A4" });
+    const chunks = [];
+    doc.on("data", (c) => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+    const formatARS = (n) => `$${parseFloat(n).toLocaleString("es-AR", { minimumFractionDigits: 2 })}`;
+    const formatDateStr = (s) => s ? new Date(s).toLocaleDateString("es-AR") : "—";
+    const statusMeta = {
+      pending: { label: "Pendiente", fg: "#92400e", bg: "#fef3c7" },
+      sent: { label: "Enviado", fg: "#1e40af", bg: "#dbeafe" },
+      paid: { label: "Pagado", fg: "#065f46", bg: "#d1fae5" },
+      overdue: { label: "Vencido", fg: "#991b1b", bg: "#fee2e2" },
+      cancelled: { label: "Cancelado", fg: "#374151", bg: "#f3f4f6" },
+    };
+    const status = statusMeta[notice.status] ?? { label: notice.status, fg: "#374151", bg: "#f3f4f6" };
+
+    // ── Header: logo + título/número/estado ─────────────────────
+    const companyName = company?.companyName || "BITLOGIC";
+    if (logo) {
+      const h = 34;
+      const w = (logo.width / logo.height) * h;
+      doc.image(logo.buffer, MARGIN, 45, { width: w, height: h });
+    } else {
+      doc.fontSize(20).font("Helvetica-Bold").fillColor("#4f46e5").text(companyName.toUpperCase(), MARGIN, 48);
+      doc.fontSize(9).font("Helvetica").fillColor("#6b7280").text("Servicios de Hosting y Tecnología", MARGIN, 72);
+    }
+
+    doc.fontSize(18).font("Helvetica-Bold").fillColor("#111827").text("AVISO DE PAGO", MARGIN, 45, { align: "right", width: CONTENT_W });
+    doc.fontSize(9).font("Helvetica").fillColor("#6b7280")
+      .text(`N°: ${notice.noticeNumber ?? "—"}`, MARGIN, 68, { align: "right", width: CONTENT_W });
+
+    const statusLabelWidth = doc.fontSize(9).font("Helvetica-Bold").widthOfString(status.label) + 16;
+    doc.roundedRect(PAGE_W - MARGIN - statusLabelWidth, 84, statusLabelWidth, 16, 8).fillColor(status.bg).fill();
+    doc.fontSize(9).font("Helvetica-Bold").fillColor(status.fg)
+      .text(status.label, PAGE_W - MARGIN - statusLabelWidth, 88, { align: "center", width: statusLabelWidth });
+
+    doc.moveTo(MARGIN, 115).lineTo(PAGE_W - MARGIN, 115).strokeColor("#e5e7eb").lineWidth(1).stroke();
+
+    // ── Cliente (izq) + fechas (der) ──────────────────────────────
+    const colY = 135;
+    let ly = colY;
+    doc.fontSize(12).font("Helvetica-Bold").fillColor("#111827")
+      .text(notice.clientCompany || notice.clientName || "—", MARGIN, ly);
+    ly += 16;
+    doc.fontSize(9).font("Helvetica").fillColor("#4b5563");
+    if (notice.clientCompany && notice.clientName) { doc.text(notice.clientName, MARGIN, ly); ly += 13; }
+    if (notice.clientEmail) { doc.text(notice.clientEmail, MARGIN, ly); ly += 13; }
+    if (notice.clientPhone) { doc.text(notice.clientPhone, MARGIN, ly); ly += 13; }
+
+    const rightColX = MARGIN + CONTENT_W / 2;
+    const rightColW = CONTENT_W / 2;
+    const month = notice.periodMonth ? MONTHS[notice.periodMonth - 1] : "—";
+    const infoRows = [
+      ["Fecha de emisión", formatDateStr(notice.issueDate)],
+      ["Fecha de vencimiento", formatDateStr(notice.dueDate)],
+      ["Período facturado", `${month} ${notice.periodYear ?? ""}`],
+    ];
+    let ry = colY;
+    for (const [label, value] of infoRows) {
+      doc.fontSize(9).font("Helvetica").fillColor("#6b7280").text(label, rightColX, ry, { width: rightColW, align: "right" });
+      doc.fontSize(9).font("Helvetica-Bold").fillColor("#111827").text(value, rightColX, ry + 12, { width: rightColW, align: "right" });
+      ry += 30;
+    }
+
+    let y = Math.max(ly, ry) + 15;
+    doc.moveTo(MARGIN, y).lineTo(PAGE_W - MARGIN, y).strokeColor("#e5e7eb").stroke();
+    y += 15;
+
+    // ── Tabla de ítem ───────────────────────────────────────────
+    doc.fontSize(9).font("Helvetica").fillColor("#9ca3af")
+      .text("DESCRIPCIÓN", MARGIN, y)
+      .text("IMPORTE", MARGIN, y, { width: CONTENT_W, align: "right" });
+    y += 14;
+    doc.moveTo(MARGIN, y).lineTo(PAGE_W - MARGIN, y).strokeColor("#e5e7eb").stroke();
+    y += 12;
+
+    doc.fontSize(11).font("Helvetica-Bold").fillColor("#111827")
+      .text(`Hosting plan ${notice.planName ?? "—"}`, MARGIN, y);
+    doc.fontSize(11).font("Helvetica-Bold").fillColor("#111827")
+      .text(formatARS(notice.amount), MARGIN, y, { width: CONTENT_W, align: "right" });
+    y += 16;
+    doc.fontSize(9).font("Helvetica").fillColor("#6b7280");
+    if (notice.serviceDomain) { doc.text(`Dominio: ${notice.serviceDomain}`, MARGIN, y); y += 13; }
+    doc.text(`Período: ${month} ${notice.periodYear ?? ""}`, MARGIN, y); y += 20;
+
+    doc.moveTo(MARGIN, y).lineTo(PAGE_W - MARGIN, y).strokeColor("#e5e7eb").stroke();
+    y += 20;
+
+    // ── Total ───────────────────────────────────────────────────
+    doc.roundedRect(MARGIN, y, CONTENT_W, 55, 6).fillColor("#f3f4f6").fill();
+    doc.fontSize(11).font("Helvetica-Bold").fillColor("#374151").text("TOTAL A PAGAR", MARGIN + 15, y + 18);
+    doc.fontSize(22).font("Helvetica-Bold").fillColor("#4f46e5")
+      .text(formatARS(notice.amount), MARGIN, y + 14, { width: CONTENT_W - 15, align: "right" });
+    y += 75;
+
+    if (notice.notes) {
+      doc.fontSize(9).font("Helvetica").fillColor("#6b7280").text(`Notas: ${notice.notes}`, MARGIN, y, { width: CONTENT_W });
+      y += 20;
+    }
+
+    // ── Footer ───────────────────────────────────────────────────
+    const footerY = Math.max(y + 20, 750);
+    doc.moveTo(MARGIN, footerY).lineTo(PAGE_W - MARGIN, footerY).strokeColor("#e5e7eb").stroke();
+    doc.fontSize(8).fillColor("#9ca3af").text(
+      `Este aviso vence el ${formatDateStr(notice.dueDate)}. Pasada esa fecha el servicio puede ser suspendido.`,
+      MARGIN, footerY + 8, { align: "center", width: CONTENT_W },
+    );
+    doc.fontSize(8).fillColor("#9ca3af").text(
+      "Este es un comprobante electrónico generado por Bitlogic.",
+      MARGIN, footerY + 20, { align: "center", width: CONTENT_W },
+    );
+
+    doc.end();
+  });
 }

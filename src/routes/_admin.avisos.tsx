@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+﻿import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,13 +19,25 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Download, Eye, Plus, Printer, Zap, AlertTriangle, Send } from "lucide-react";
+import { Download, Eye, Plus, Printer, Zap, AlertTriangle, Send, Trash2 } from "lucide-react";
+import { TrimmedLogo } from "@/components/trimmed-logo";
 import { toast } from "sonner";
-import { formatDate, formatLongDate, formatMoney, formatPeriod } from "@/lib/mock-data";
-import { useNotices, useSendNotice, useCancelNotice } from "@/lib/queries";
+import { formatDate, formatLongDate, formatMoney, formatPeriod } from "@/lib/format";
+import { useNotices, useSendNotice, useCancelNotice, useDeleteNotice, useCompanySettings } from "@/lib/queries";
 import type { MappedNotice } from "@/lib/api-mappers";
-import { noticesApi } from "@/lib/api-client";
+import { noticesApi, API_BASE_URL } from "@/lib/api-client";
 
 export const Route = createFileRoute("/_admin/avisos")({
   head: () => ({ meta: [{ title: "Avisos de pago — Bitlogic" }] }),
@@ -34,19 +46,36 @@ export const Route = createFileRoute("/_admin/avisos")({
 
 // ── Documento de aviso ───────────────────────────────────────
 function NoticeDocument({ n }: { n: MappedNotice }) {
+  const { data: companyRaw } = useCompanySettings();
+  const company = companyRaw as { logoUrl?: string; companyName?: string } | undefined;
+  const rawLogoUrl = company?.logoUrl;
+  const logoUrl = rawLogoUrl
+    ? rawLogoUrl.startsWith("/api")
+      ? `${API_BASE_URL.replace("/api", "")}${rawLogoUrl}`
+      : rawLogoUrl
+    : null;
+
   return (
     <div className="rounded-xl border border-border/60 bg-white text-zinc-900 shadow-2xl">
-      <div className="flex items-start justify-between border-b border-zinc-200 p-8">
+      <div className="flex items-center justify-between border-b border-zinc-200 px-8 py-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[oklch(0.62_0.22_255)] text-white">
-            <Zap className="h-6 w-6" />
-          </div>
-          <div>
-            <p className="text-lg font-semibold tracking-tight">Bitlogic</p>
-            <p className="text-[11px] uppercase tracking-widest text-zinc-500">
-              Diseño web · Hosting
-            </p>
-          </div>
+          {logoUrl ? (
+            <TrimmedLogo src={logoUrl} alt="Logo" className="h-12 w-auto object-contain" />
+          ) : (
+            <>
+              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[oklch(0.62_0.22_255)] text-white">
+                <Zap className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-lg font-semibold tracking-tight">
+                  {company?.companyName || "Bitlogic"}
+                </p>
+                <p className="text-[11px] uppercase tracking-widest text-zinc-500">
+                  Diseño web · Hosting
+                </p>
+              </div>
+            </>
+          )}
         </div>
         <div className="text-right">
           <p className="text-[11px] uppercase tracking-widest text-zinc-500">Aviso de pago</p>
@@ -59,8 +88,7 @@ function NoticeDocument({ n }: { n: MappedNotice }) {
 
       <div className="grid grid-cols-2 gap-6 border-b border-zinc-200 p-8">
         <div>
-          <p className="text-[11px] uppercase tracking-widest text-zinc-500">Facturar a</p>
-          <p className="mt-2 text-base font-semibold">{n.clientCompany}</p>
+          <p className="text-base font-semibold">{n.clientCompany}</p>
           <p className="text-sm text-zinc-600">{n.clientName}</p>
           <p className="text-sm text-zinc-600">{n.clientEmail}</p>
           <p className="text-sm text-zinc-600">{n.clientPhone}</p>
@@ -131,11 +159,11 @@ function NoticesPage() {
 
   const sendMutation = useSendNotice();
   const cancelMutation = useCancelNotice();
+  const deleteMutation = useDeleteNotice();
 
   const handlePdf = async (id: string) => {
     try {
-      const res = await noticesApi.pdf(id);
-      toast.info(res.message);
+      await noticesApi.pdf(id);
     } catch {
       toast.error("Error al generar PDF");
     }
@@ -247,6 +275,37 @@ function NoticesPage() {
                         <Button size="sm" variant="ghost" onClick={() => handlePdf(n.id)}>
                           <Download className="h-4 w-4" /> PDF
                         </Button>
+                        {n.status !== "pagado" && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>¿Eliminar aviso?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Esta acción es permanente. Se eliminará el aviso{" "}
+                                  <strong>{n.noticeNumber}</strong> de {n.clientCompany ?? n.clientName}.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                <AlertDialogAction
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  onClick={() => deleteMutation.mutate(n.id)}
+                                >
+                                  Eliminar
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

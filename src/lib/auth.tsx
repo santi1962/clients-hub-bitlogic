@@ -158,6 +158,7 @@ function mapBackendUser(raw: {
   phone?: string | null;
   clientId?: string | null;
   lastLoginAt?: string | null;
+  notifications?: { emailPayments?: boolean; emailTickets?: boolean; whatsapp?: boolean; weeklyReport?: boolean } | null;
 }): AuthUser {
   const role = raw.role as Role;
   const initials = raw.name
@@ -181,10 +182,10 @@ function mapBackendUser(raw: {
     // Permisos derivados del rol (futuro: vendrán del JWT como claims)
     permissions: PERMISSIONS[role] ?? [],
     notifications: {
-      emailPayments: true,
-      emailTickets: true,
-      whatsapp: false,
-      weeklyReport: true,
+      emailPayments: raw.notifications?.emailPayments ?? true,
+      emailTickets: raw.notifications?.emailTickets ?? true,
+      whatsapp: raw.notifications?.whatsapp ?? false,
+      weeklyReport: raw.notifications?.weeklyReport ?? true,
     },
   };
 }

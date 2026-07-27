@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+﻿import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -11,21 +12,34 @@ import {
 import { StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatDate, formatMoney, formatPeriod } from "@/lib/mock-data";
-import { useNotices } from "@/lib/queries";
-import { useAuthUser } from "@/lib/auth";
-import { DEMO_CLIENT_ID } from "./portal";
+import { Button } from "@/components/ui/button";
+import { Loader2, CreditCard } from "lucide-react";
+import { formatDate, formatMoney, formatPeriod } from "@/lib/format";
+import { useMyNotices } from "@/lib/queries";
+import { mpApi } from "@/lib/api-client";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/portal/avisos")({
   component: PortalAvisos,
 });
 
 function PortalAvisos() {
-  const user = useAuthUser();
-  const clientId = user.clientId ?? DEMO_CLIENT_ID;
-
-  const { data, isLoading } = useNotices({ clientId });
+  const { data, isLoading } = useMyNotices();
   const items = (data?.data ?? []).slice().sort((a, b) => b.issuedAt.localeCompare(a.issuedAt));
+  const [payingId, setPayingId] = useState<string | null>(null);
+
+  const handlePagar = async (noticeId: string) => {
+    setPayingId(noticeId);
+    try {
+      const { checkoutUrl } = await mpApi.createCheckout(noticeId);
+      window.location.href = checkoutUrl;
+    } catch (err: any) {
+      toast.error(err?.message ?? "Error al iniciar el pago. Intentá de nuevo.");
+      setPayingId(null);
+    }
+  };
+
+  const PAGABLE = new Set(["pendiente", "enviado", "vencido"]);
 
   return (
     <Card className="border-border/60 bg-card/60">
@@ -52,6 +66,7 @@ function PortalAvisos() {
                 <TableHead>Vence</TableHead>
                 <TableHead className="text-right">Monto</TableHead>
                 <TableHead>Estado</TableHead>
+                <TableHead className="text-right">Acción</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -67,6 +82,22 @@ function PortalAvisos() {
                   <TableCell className="text-right font-medium">{formatMoney(n.amount)}</TableCell>
                   <TableCell>
                     <StatusBadge status={n.status} />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {PAGABLE.has(n.status) && (
+                      <Button
+                        size="sm"
+                        disabled={payingId === n.id}
+                        onClick={() => handlePagar(n.id)}
+                      >
+                        {payingId === n.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <CreditCard className="h-3 w-3" />
+                        )}
+                        Pagar online
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

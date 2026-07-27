@@ -12,7 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { CheckCircle2, Circle, Loader2, AlertCircle } from "lucide-react";
-import { getAccessToken } from "@/lib/api-client";
+import { request } from "@/lib/api-client";
 
 export const Route = createFileRoute("/_admin/onboarding")({
   head: () => ({ meta: [{ title: "Onboarding de Clientes — Bitlogic" }] }),
@@ -39,44 +39,15 @@ function OnboardingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const token = getAccessToken();
-
   useEffect(() => {
     loadClients();
-  }, [token]);
+  }, []);
 
   async function loadClients() {
     try {
       setLoading(true);
-      const res = await fetch("/api/clients?limit=50", {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) throw new Error("Failed to load clients");
-      const data = await res.json();
-
-      // Mock onboarding status based on real data
-      const clientsData = (data.data || []).map((client: any) => {
-        const createdAt = new Date(client.created_at);
-        const now = new Date();
-        const daysOld = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
-
-        return {
-          client_id: client.id,
-          name: client.name || "Sin nombre",
-          created_at: client.created_at,
-          steps: {
-            client_created: true,
-            service_created: daysOld >= 0,
-            domain_loaded: daysOld >= 1,
-            portal_user_created: daysOld >= 1,
-            hestia_synced: daysOld >= 2,
-            first_notice_generated: daysOld >= 3,
-            first_payment_registered: daysOld >= 5,
-          },
-        };
-      });
-
-      setClients(clientsData);
+      const data = await request<ClientOnboarding[]>("/onboarding");
+      setClients(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {

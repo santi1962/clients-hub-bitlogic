@@ -5,8 +5,9 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AlertCircle, Mail, Loader2, Play, Trash2, X } from "lucide-react";
-import { getAccessToken } from "@/lib/api-client";
+import { AlertCircle, Mail, Loader2, Play, Trash2, X, MessageCircle, Send } from "lucide-react";
+import { getAccessToken, API_BASE_URL } from "@/lib/api-client";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_admin/automatizaciones")({
   head: () => ({ meta: [{ title: "Automatizaciones — Bitlogic" }] }),
@@ -52,6 +53,218 @@ const BLOCKED_SETTINGS = [
   "hestia_sync_enabled",
 ];
 
+interface WhatsAppStatus {
+  enabled: boolean;
+  state: "disconnected" | "connecting" | "qr_pending" | "connected";
+  qr: string | null;
+}
+
+function WhatsAppCard() {
+  const token = getAccessToken();
+  const [status, setStatus] = useState<WhatsAppStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [testPhone, setTestPhone] = useState("");
+  const [testMessage, setTestMessage] = useState("Hola, este es un mensaje de prueba de Bitlogic.");
+
+  async function loadStatus() {
+    try {
+      const res = await fetch(`${API_BASE_URL}/whatsapp/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setStatus(await res.json());
+    } catch {
+      // silencioso: se reintenta en el próximo poll
+    }
+  }
+
+  useEffect(() => {
+    if (!token) return;
+    loadStatus();
+    const interval = setInterval(loadStatus, 3000);
+    return () => clearInterval(interval);
+  }, [token]);
+
+  async function connect() {
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/whatsapp/connect`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message ?? "Error al conectar");
+      setStatus({ enabled: true, ...data });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al conectar WhatsApp");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disconnect() {
+    setBusy(true);
+    try {
+      await fetch(`${API_BASE_URL}/whatsapp/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await loadStatus();
+      toast.success("WhatsApp desvinculado");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendTest() {
+    if (!testPhone || !testMessage) {
+      toast.error("Completá teléfono y mensaje");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/whatsapp/test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ phone: testPhone, message: testMessage }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message ?? "Error al enviar");
+      toast.success("Mensaje de WhatsApp enviado");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al enviar mensaje de prueba");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const stateLabel: Record<string, string> = {
+    disconnected: "Desconectado",
+    connecting: "Conectando…",
+    qr_pending: "Esperando escaneo de QR",
+    connected: "Conectado",
+  };
+  const stateColor: Record<string, string> = {
+    disconnected: "bg-gray-100 text-gray-700",
+    connecting: "bg-amber-100 text-amber-700",
+    qr_pending: "bg-amber-100 text-amber-700",
+    connected: "bg-emerald-100 text-emerald-700",
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
+        <div className="flex items-center gap-2">
+          <MessageCircle className="h-4 w-4" />
+          <div>
+            <CardTitle className="text-base">WhatsApp (recordatorios a clientes)</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Se vincula escaneando un QR desde la app de WhatsApp de un número de la empresa.
+            </p>
+          </div>
+        </div>
+        {status && (
+          <Badge variant="outline" className={stateColor[status.state]}>
+            {stateLabel[status.state]}
+          </Badge>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!status?.enabled && (
+          <p className="text-sm text-muted-foreground">
+            Activalo seteando <code>WHATSAPP_ENABLED=true</code> en el <code>.env</code> del backend y reiniciá el servidor.
+          </p>
+        )}
+
+        {status?.enabled && status.state === "qr_pending" && status.qr && (
+          <div className="flex flex-col items-center gap-2">
+            <img src={status.qr} alt="Código QR de WhatsApp" className="h-56 w-56 rounded-lg border" />
+            <p className="text-sm text-muted-foreground">
+              WhatsApp → Dispositivos vinculados → Vincular un dispositivo
+            </p>
+          </div>
+        )}
+
+        {status?.enabled && (
+          <div className="flex gap-2">
+            {status.state === "disconnected" && (
+              <Button onClick={connect} disabled={busy} size="sm">
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Vincular WhatsApp"}
+              </Button>
+            )}
+            {status.state === "connected" && (
+              <Button onClick={disconnect} disabled={busy} size="sm" variant="destructive">
+                Desvincular
+              </Button>
+            )}
+          </div>
+        )}
+
+        {status?.enabled && status.state === "connected" && (
+          <div className="grid gap-2 border-t pt-4">
+            <p className="text-sm font-medium">Enviar mensaje de prueba</p>
+            <div className="flex gap-2">
+              <Input
+                placeholder="+54 9 11 5555-5555"
+                value={testPhone}
+                onChange={(e) => setTestPhone(e.target.value)}
+                className="max-w-[200px]"
+              />
+              <Input value={testMessage} onChange={(e) => setTestMessage(e.target.value)} />
+              <Button onClick={sendTest} disabled={busy} size="sm" variant="outline">
+                <Send className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TelegramCard() {
+  const token = getAccessToken();
+  const [busy, setBusy] = useState(false);
+
+  async function sendTest() {
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/telegram/test`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message ?? "Error al enviar");
+      toast.success("Mensaje de prueba enviado a Telegram");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al enviar prueba de Telegram");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+        <div>
+          <CardTitle className="text-base">Telegram (avisos al staff)</CardTitle>
+          <p className="text-sm text-muted-foreground mt-1">
+            Notifica al chat configurado cuando entra un ticket nuevo o un cliente responde uno existente.
+          </p>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Configurá <code>TELEGRAM_BOT_TOKEN</code> y <code>TELEGRAM_CHAT_ID</code> en el{" "}
+          <code>.env</code> del backend (instrucciones en <code>.env.example</code>).
+        </p>
+        <Button onClick={sendTest} disabled={busy} size="sm" variant="outline">
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enviar mensaje de prueba"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 function AutomatizacionesPage() {
   const [settings, setSettings] = useState<AutomationSetting[]>([]);
   const [jobs, setJobs] = useState<SchedulerJob[]>([]);
@@ -88,7 +301,7 @@ function AutomatizacionesPage() {
 
   async function loadSettings() {
     try {
-      const res = await fetch("/api/automation-settings", {
+      const res = await fetch(`${API_BASE_URL}/automation-settings`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error("Failed to load settings");
@@ -112,7 +325,7 @@ function AutomatizacionesPage() {
 
   async function loadJobs() {
     try {
-      const res = await fetch("/api/scheduler/jobs", {
+      const res = await fetch(`${API_BASE_URL}/scheduler/jobs`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error("Failed to load jobs");
@@ -125,7 +338,7 @@ function AutomatizacionesPage() {
 
   async function loadLogs() {
     try {
-      const res = await fetch("/api/scheduler/logs?limit=10", {
+      const res = await fetch(`${API_BASE_URL}/scheduler/logs?limit=10`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error("Failed to load logs");
@@ -139,7 +352,7 @@ function AutomatizacionesPage() {
   async function toggleSetting(key: string, currentEnabled: boolean) {
     try {
       setToggling({ ...toggling, [key]: true });
-      const res = await fetch(`/api/automation-settings/${key}/toggle`, {
+      const res = await fetch(`${API_BASE_URL}/automation-settings/${key}/toggle`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -160,7 +373,7 @@ function AutomatizacionesPage() {
   async function executeJob(jobName: string) {
     try {
       setExecuting({ ...executing, [jobName]: true });
-      const res = await fetch(`/api/scheduler/jobs/${jobName}/run`, {
+      const res = await fetch(`${API_BASE_URL}/scheduler/jobs/${jobName}/run`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -179,7 +392,7 @@ function AutomatizacionesPage() {
     if (!email) return;
 
     try {
-      const res = await fetch(`/api/automation-settings/notification_recipients_${type}/recipients`, {
+      const res = await fetch(`${API_BASE_URL}/automation-settings/notification_recipients_${type}/recipients`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -203,7 +416,7 @@ function AutomatizacionesPage() {
 
   async function removeRecipient(type: "admin" | "finance", email: string) {
     try {
-      const res = await fetch(`/api/automation-settings/notification_recipients_${type}/recipients`, {
+      const res = await fetch(`${API_BASE_URL}/automation-settings/notification_recipients_${type}/recipients`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -551,6 +764,20 @@ function AutomatizacionesPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Notificaciones externas */}
+      <div className="space-y-4 border-t pt-6">
+        <div>
+          <h2 className="text-xl font-semibold">Notificaciones externas</h2>
+          <p className="text-sm text-muted-foreground">
+            Avisos por WhatsApp a clientes y por Telegram al equipo
+          </p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <WhatsAppCard />
+          <TelegramCard />
         </div>
       </div>
 

@@ -28,9 +28,9 @@ function formatService(row) {
     setupDate: row.setup_date,
     nextDueDate: row.next_due_date,
     storageUsedGb: parseFloat(row.storage_used_gb || 0),
-    storageTotalGb: parseFloat(row.storage_total_gb),
+    storageTotalGb: parseFloat(row.plan_storage_gb ?? row.storage_total_gb),
     emailsUsed: row.emails_used ?? 0,
-    emailsTotal: row.emails_total, // null = ilimitados
+    emailsTotal: row.plan_emails_limit ?? null, // null = ilimitados
     hestiaUsername: row.hestia_username ?? null,
     hestiaUrl: row.hestia_url ?? null,
     internalNotes: row.internal_notes ?? "",
@@ -45,9 +45,11 @@ function formatService(row) {
 const SERVICE_SELECT = `
   SELECT
     hs.*,
-    c.name    AS client_name,
-    c.company AS client_company,
-    hp.name   AS plan_name
+    c.name         AS client_name,
+    c.company      AS client_company,
+    hp.name        AS plan_name,
+    hp.storage_gb  AS plan_storage_gb,
+    hp.emails_limit AS plan_emails_limit
   FROM hosting_services hs
   LEFT JOIN clients       c  ON c.id  = hs.client_id
   LEFT JOIN hosting_plans hp ON hp.id = hs.plan_id
@@ -204,28 +206,30 @@ export async function createService(data) {
     monthlyPrice,
     setupDate,
     nextDueDate,
-    storageTotalGb,
-    emailsTotal,
     hestiaUsername,
     hestiaUrl,
     internalNotes,
   } = data;
 
-  if (
-    !clientId ||
-    !planId ||
-    !domain ||
-    !monthlyPrice ||
-    !setupDate ||
-    !nextDueDate ||
-    !storageTotalGb
-  ) {
+  if (!clientId || !planId || !domain || !monthlyPrice || !setupDate || !nextDueDate) {
     const e = new Error(
-      "Campos requeridos: clientId, planId, domain, monthlyPrice, setupDate, nextDueDate, storageTotalGb",
+      "Campos requeridos: clientId, planId, domain, monthlyPrice, setupDate, nextDueDate",
     );
     e.status = 400;
     throw e;
   }
+
+  // Tomar storage y emails del plan para que los totales siempre reflejen el plan
+  const { rows: planRows } = await pool.query(
+    `SELECT storage_gb, emails_limit FROM hosting_plans WHERE id = $1`,
+    [planId],
+  );
+  if (!planRows[0]) {
+    const e = new Error("Plan no encontrado");
+    e.status = 400;
+    throw e;
+  }
+  const { storage_gb, emails_limit } = planRows[0];
 
   const { rows } = await pool.query(
     `INSERT INTO hosting_services
@@ -240,8 +244,8 @@ export async function createService(data) {
       monthlyPrice,
       setupDate,
       nextDueDate,
-      storageTotalGb,
-      emailsTotal ?? null,
+      storage_gb,
+      emails_limit ?? null,
       hestiaUsername ?? null,
       hestiaUrl ?? null,
       internalNotes ?? null,
@@ -357,18 +361,18 @@ export async function changeServicePlan(id, planId) {
   // Verificar que el plan existe
   await getPlanById(planId);
 
-  // Actualizar plan y ajustar recursos según el nuevo plan
+  // Actualizar plan y ajustar recursos y precio según el nuevo plan
   const { rows: planRows } = await pool.query(
-    `SELECT storage_gb, emails_limit FROM hosting_plans WHERE id = $1`,
+    `SELECT storage_gb, emails_limit, monthly_price FROM hosting_plans WHERE id = $1`,
     [planId],
   );
   const plan = planRows[0];
 
   const { rows } = await pool.query(
     `UPDATE hosting_services
-     SET plan_id = $2, storage_total_gb = $3, emails_total = $4
+     SET plan_id = $2, storage_total_gb = $3, emails_total = $4, monthly_price = $5
      WHERE id = $1 RETURNING id`,
-    [id, planId, plan.storage_gb, plan.emails_limit],
+    [id, planId, plan.storage_gb, plan.emails_limit, plan.monthly_price],
   );
   if (!rows[0]) {
     const e = new Error("Servicio no encontrado");

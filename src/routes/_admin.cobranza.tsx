@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+﻿import { createFileRoute } from "@tanstack/react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -33,7 +33,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatMoney } from "@/lib/mock-data";
+import { formatMoney } from "@/lib/format";
 import { useBillingSummary } from "@/lib/queries";
 
 export const Route = createFileRoute("/_admin/cobranza")({

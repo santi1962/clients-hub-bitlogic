@@ -30,9 +30,10 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Plus, Search, AlertTriangle, Trash2, RotateCw, Mail } from "lucide-react";
-import { formatDate, formatMoney } from "@/lib/mock-data";
-import { useDomains, useDeleteDomain, useCreateDomain } from "@/lib/queries";
+import { formatDate, formatMoney } from "@/lib/format";
+import { useDomains, useDeleteDomain, useCreateDomain, useUpdateDomain, useClients } from "@/lib/queries";
 import { useState } from "react";
+import type { MappedDomain } from "@/lib/api-mappers";
 
 export const Route = createFileRoute("/_admin/dominios")({
   head: () => ({ meta: [{ title: "Dominios — Bitlogic" }] }),
@@ -43,7 +44,7 @@ function DominiosPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [expiringInDays, setExpiringInDays] = useState("");
-  const [selectedDomain, setSelectedDomain] = useState(null);
+  const [selectedDomain, setSelectedDomain] = useState<MappedDomain | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [editData, setEditData] = useState({
     expirationDate: "",
@@ -68,12 +69,15 @@ function DominiosPage() {
 
   const deleteMutation = useDeleteDomain();
   const createMutation = useCreateDomain();
+  const updateMutation = useUpdateDomain(selectedDomain?.id ?? "");
+  const { data: clientsData } = useClients();
+  const clientList = clientsData?.data ?? [];
   const domains = data?.data ?? [];
 
-  const handleViewDomain = (domain) => {
+  const handleViewDomain = (domain: MappedDomain) => {
     setSelectedDomain(domain);
     setEditData({
-      expirationDate: domain.expirationDate,
+      expirationDate: domain.expirationDate?.split("T")[0] ?? "",
       annualCost: domain.annualCost?.toString() || "0",
       customerPrice: domain.customerPrice?.toString() || "0",
       autoRenew: domain.autoRenew || false,
@@ -247,8 +251,21 @@ function DominiosPage() {
             <Button variant="outline" onClick={() => setSelectedDomain(null)}>
               Cancelar
             </Button>
-            <Button onClick={() => setSelectedDomain(null)}>
-              Guardar cambios
+            <Button
+              disabled={updateMutation.isPending}
+              onClick={() => {
+                updateMutation.mutate(
+                  {
+                    expirationDate: editData.expirationDate,
+                    annualCost: parseFloat(editData.annualCost) || 0,
+                    customerPrice: parseFloat(editData.customerPrice) || 0,
+                    autoRenew: editData.autoRenew,
+                  },
+                  { onSuccess: () => setSelectedDomain(null) }
+                );
+              }}
+            >
+              {updateMutation.isPending ? "Guardando..." : "Guardar cambios"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -262,6 +279,24 @@ function DominiosPage() {
             <DialogDescription>Registra un nuevo dominio en el sistema</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Cliente</Label>
+              <Select
+                value={createData.clientId}
+                onValueChange={(v) => setCreateData({ ...createData, clientId: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccioná un cliente" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clientList.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.company ?? c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-1.5">
               <Label>Nombre del dominio</Label>
               <Input
@@ -305,9 +340,10 @@ function DominiosPage() {
             </Button>
             <Button
               onClick={() => {
-                if (createData.domain && createData.expirationDate) {
+                if (createData.clientId && createData.domain && createData.expirationDate) {
                   createMutation.mutate(
                     {
+                      clientId: createData.clientId,
                       domain: createData.domain,
                       expirationDate: createData.expirationDate,
                       registrar: createData.registrar,
@@ -322,7 +358,7 @@ function DominiosPage() {
                   );
                 }
               }}
-              disabled={createMutation.isPending || !createData.domain || !createData.expirationDate}
+              disabled={createMutation.isPending || !createData.clientId || !createData.domain || !createData.expirationDate}
             >
               {createMutation.isPending ? "Agregando..." : "Agregar dominio"}
             </Button>

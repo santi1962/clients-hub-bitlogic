@@ -1,12 +1,14 @@
 import "dotenv/config";
 import express from "express";
+import { fileURLToPath } from "url";
+import path from "path";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import helmet from "helmet";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import jwt from "jsonwebtoken";
-import bcrypt from "bcrypt";
 import config from "./config/index.js";
 import pool from "./db/pool.js";
+import authRoutes from "./routes/auth.routes.js";
 import settingsRoutes from "./routes/settings.routes.js";
 import plansRoutes from "./routes/plans.routes.js";
 import clientsRoutes from "./routes/clients.routes.js";
@@ -16,24 +18,36 @@ import dashboardRoutes from "./routes/dashboard.routes.js";
 import billingRoutes from "./routes/billing.routes.js";
 import supportRoutes from "./routes/support.routes.js";
 import tasksRoutes from "./routes/tasks.routes.js";
+import usersRoutes from "./routes/users.routes.js";
+import portalRoutes from "./routes/portal.routes.js";
 import emailRoutes from "./routes/email.routes.js";
+import telegramRoutes from "./routes/telegram.routes.js";
+import whatsappRoutes from "./routes/whatsapp.routes.js";
 import hestiaRoutes from "./routes/hestia.routes.js";
+import automationSettingsRoutes from "./routes/automation-settings.routes.js";
+import schedulerRoutes from "./routes/scheduler.routes.js";
+import onboardingRoutes from "./routes/onboarding.routes.js";
+import backupsRoutes from "./routes/backups.routes.js";
+import mercadopagoRoutes from "./routes/mercadopago.routes.js";
+import auditRoutes from "./routes/audit.routes.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
-import { schedulerService } from "./services/scheduler.service.js";
-import { paymentRemindersDaily } from "./jobs/payment-reminders.job.js";
-import { delinquencyDetectionDaily } from "./jobs/delinquency-detection.job.js";
-import { hestiaSyncDaily } from "./jobs/hestia-sync.job.js";
+import { authRequired } from "./middlewares/authRequired.js";
+import { requireStaff } from "./middlewares/requireRole.js";
 
 const app = express();
 
 // ── Seguridad ─────────────────────────────────────────────────
-app.use(helmet());
+// crossOriginResourcePolicy en "cross-origin": el frontend (puerto Vite)
+// y el backend corren en orígenes distintos, y el frontend carga imágenes
+// (logo, adjuntos) servidas por este backend vía <img src>.
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(cors({ origin: config.cors.origin, credentials: true }));
 
 // ── Parsers ───────────────────────────────────────────────────
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
+// Los uploads se sirven sólo a través del endpoint autenticado /api/uploads/tickets/:filename
 
 // ── Health check ──────────────────────────────────────────────
 app.get("/api/health", async (_req, res) => {
@@ -51,27 +65,19 @@ app.get("/api/health", async (_req, res) => {
   });
 });
 
-// ── System Status (Fase 4F) ────────────────────────────────────
-app.get("/api/system/status", async (_req, res) => {
-  const startTime = process.uptime();
+// ── System Status ──────────────────────────────────────────────
+app.get("/api/system/status", authRequired, requireStaff, async (_req, res) => {
   const results = {
     version: "1.0.0",
-    uptime: Math.floor(startTime),
+    uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
     database: "unknown",
     smtp: "unknown",
     hestia: "unknown",
     scheduler: "unknown",
-    stats: {
-      clients: 0,
-      services: 0,
-      domains: 0,
-      tickets_open: 0,
-      tasks_pending: 0,
-    },
+    stats: { clients: 0, services: 0, domains: 0, tickets_open: 0, tasks_pending: 0 },
   };
 
-  // Check database
   try {
     await pool.query("SELECT 1");
     results.database = "ok";
@@ -79,25 +85,9 @@ app.get("/api/system/status", async (_req, res) => {
     results.database = "error";
   }
 
-  // Check SMTP
-  try {
-    const smtpHost = config.smtp.host;
-    const smtpUser = config.smtp.user;
-    results.smtp = smtpHost && smtpUser ? "configured" : "unconfigured";
-  } catch {
-    results.smtp = "error";
-  }
+  results.smtp = config.smtp.host && config.smtp.user ? "configured" : "unconfigured";
+  results.hestia = config.hestia.url && config.hestia.apiKey ? "configured" : "unconfigured";
 
-  // Check Hestia
-  try {
-    const hestiaUrl = config.hestia.url;
-    const hestiaKey = config.hestia.apiKey;
-    results.hestia = hestiaUrl && hestiaKey ? "configured" : "unconfigured";
-  } catch {
-    results.hestia = "error";
-  }
-
-  // Check scheduler (last 5 minute)
   try {
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60000);
     const schedulerCheck = await pool.query(
@@ -109,109 +99,28 @@ app.get("/api/system/status", async (_req, res) => {
     results.scheduler = "unknown";
   }
 
-  // Get stats
   try {
     const stats = await Promise.all([
       pool.query("SELECT COUNT(*) as count FROM clients WHERE status = 'active'").catch(() => ({ rows: [{ count: 0 }] })),
       pool.query("SELECT COUNT(*) as count FROM hosting_services WHERE status IN ('active', 'due_soon', 'pending_payment')").catch(() => ({ rows: [{ count: 0 }] })),
-      pool.query("SELECT COUNT(*) as count FROM domains WHERE status IN ('activo', 'proximo_a_vencer')").catch(() => ({ rows: [{ count: 0 }] })),
-      pool.query("SELECT COUNT(*) as count FROM support_tickets WHERE status IN ('open', 'waiting_customer')").catch(() => ({ rows: [{ count: 0 }] })),
-      pool.query("SELECT 0 as count").catch(() => ({ rows: [{ count: 0 }] })), // tasks table doesn't exist yet
+      pool.query("SELECT COUNT(*) as count FROM domains WHERE status IN ('active', 'due_soon')").catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query("SELECT COUNT(*) as count FROM support_tickets WHERE status IN ('open', 'waiting_client')").catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query("SELECT COUNT(*) as count FROM internal_tasks WHERE status = 'pending'").catch(() => ({ rows: [{ count: 0 }] })),
     ]);
-
     results.stats.clients = parseInt(stats[0].rows[0]?.count || 0);
     results.stats.services = parseInt(stats[1].rows[0]?.count || 0);
     results.stats.domains = parseInt(stats[2].rows[0]?.count || 0);
     results.stats.tickets_open = parseInt(stats[3].rows[0]?.count || 0);
-    results.stats.tasks_pending = 0; // Placeholder until tasks table exists
+    results.stats.tasks_pending = parseInt(stats[4].rows[0]?.count || 0);
   } catch (err) {
     console.error("[System] Error getting stats:", err.message);
   }
 
-  const isHealthy = results.database === "ok";
-  res.status(isHealthy ? 200 : 503).json(results);
+  res.status(results.database === "ok" ? 200 : 503).json(results);
 });
 
 // ── Rutas ─────────────────────────────────────────────────────
-
-// Refresh token endpoint
-app.post("/api/auth/refresh", (req, res) => {
-  // En desarrollo sin cookies, devolver un token temporal
-  const token = jwt.sign(
-    { sub: "admin", role: "super_admin" },
-    config.jwt.accessSecret,
-    { expiresIn: "1h" }
-  );
-  res.json({ accessToken: token });
-});
-
-// Login para admin y clientes
-app.post("/api/auth/login", async (req, res) => {
-  const { email, password } = req.body;
-
-  // Admin hardcodeado
-  if (email === "admin@bitlogic.com.ar" && password === "Cambiar123!") {
-    const token = jwt.sign(
-      { sub: "admin", role: "super_admin" },
-      config.jwt.accessSecret,
-      { expiresIn: "1h" }
-    );
-    return res.json({
-      accessToken: token,
-      user: {
-        id: "admin",
-        name: "Admin Bitlogic",
-        email: "admin@bitlogic.com.ar",
-        role: "super_admin",
-        phone: null,
-        clientId: null,
-        lastLoginAt: new Date().toISOString(),
-      },
-    });
-  }
-
-  // Buscar usuario en BD (clientes)
-  try {
-    const result = await pool.query(
-      "SELECT id, email, password_hash, name, role, status, client_id FROM users WHERE email = $1 AND status = 'active'",
-      [email]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: { code: "INVALID_CREDENTIALS", message: "Credenciales inválidas" } });
-    }
-
-    const user = result.rows[0];
-    const passwordMatch = await bcrypt.compare(password, user.password_hash);
-
-    if (!passwordMatch) {
-      return res.status(401).json({ error: { code: "INVALID_CREDENTIALS", message: "Credenciales inválidas" } });
-    }
-
-    const token = jwt.sign(
-      { sub: user.id, role: user.role, clientId: user.client_id },
-      config.jwt.accessSecret,
-      { expiresIn: "1h" }
-    );
-
-    res.json({
-      accessToken: token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        clientId: user.client_id,
-        phone: null,
-        lastLoginAt: new Date().toISOString(),
-      },
-    });
-  } catch (err) {
-    console.error("Login error:", err);
-    res.status(500).json({ error: { code: "SERVER_ERROR", message: "Error en el servidor" } });
-  }
-});
-
+app.use("/api/auth", authRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/hosting/plans", plansRoutes);
 app.use("/api/clients", clientsRoutes);
@@ -221,64 +130,19 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/tasks", tasksRoutes);
+app.use("/api/users", usersRoutes);
+app.use("/api/portal", portalRoutes);
 app.use("/api/email", emailRoutes);
+app.use("/api/telegram", telegramRoutes);
+app.use("/api/whatsapp", whatsappRoutes);
 app.use("/api/hestia", hestiaRoutes);
-
-// ── Scheduler Registration ────────────────────────────────────
-// (Disabled for setup-inicial testing)
-
-// Logout endpoint
-app.post("/api/auth/logout", (req, res) => {
-  res.status(204).send();
-});
-
-// ── Endpoint /api/auth/me (ANTES del errorHandler)
-app.get("/api/auth/me", async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) {
-    return res.status(401).json({ error: { code: "NO_AUTH", message: "Token requerido" } });
-  }
-  const token = authHeader.slice(7);
-  try {
-    const decoded = jwt.verify(token, config.jwt.accessSecret);
-
-    // Admin hardcodeado
-    if (decoded.sub === "admin") {
-      return res.json({
-        id: "admin",
-        name: "Admin Bitlogic",
-        email: "admin@bitlogic.com.ar",
-        role: "super_admin",
-        phone: null,
-        clientId: null,
-        lastLoginAt: new Date().toISOString(),
-      });
-    }
-
-    // Buscar usuario en BD
-    const result = await pool.query(
-      "SELECT id, email, name, role, phone, status, client_id FROM users WHERE id = $1",
-      [decoded.sub]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: { code: "USER_NOT_FOUND", message: "Usuario no encontrado" } });
-    }
-
-    const user = result.rows[0];
-    res.json({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      phone: user.phone,
-      clientId: user.client_id,
-      lastLoginAt: new Date().toISOString(),
-    });
-  } catch {
-    res.status(401).json({ error: { code: "INVALID_TOKEN", message: "Token inválido o expirado" } });
-  }
-});
+app.use("/api/automation-settings", automationSettingsRoutes);
+app.use("/api/scheduler", schedulerRoutes);
+app.use("/api/onboarding", onboardingRoutes);
+app.use("/api/backups", backupsRoutes);
+app.use("/api/portal/payments", mercadopagoRoutes);
+app.use("/api/webhooks", mercadopagoRoutes);
+app.use("/api/audit", auditRoutes);
 
 // ── Manejo de errores ─────────────────────────────────────────
 app.use(errorHandler);

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+﻿import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,11 +28,26 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, AlertTriangle, CheckCircle2 } from "lucide-react";
-import { formatDate, formatMoney, formatPeriod } from "@/lib/mock-data";
-import { usePayments, useMarkPaymentPaid, useCreatePayment } from "@/lib/queries";
-import { methodToDb } from "@/lib/api-mappers";
+import { Plus, AlertTriangle, CheckCircle2, Pencil, Trash2 } from "lucide-react";
+import { formatDate, formatMoney, formatPeriod } from "@/lib/format";
+import {
+  usePayments,
+  useMarkPaymentPaid,
+  useCreatePayment,
+  useUpdatePayment,
+  useDeletePayment,
+} from "@/lib/queries";
+import { methodToDb, paymentStatusToDb, type MappedPayment } from "@/lib/api-mappers";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_admin/pagos")({
@@ -54,6 +69,8 @@ function PaymentsPage() {
 
   const markPaidMutation = useMarkPaymentPaid();
   const createPaymentMutation = useCreatePayment();
+  const updatePaymentMutation = useUpdatePayment();
+  const deletePaymentMutation = useDeletePayment();
 
   const [form, setForm] = useState({
     clientId: "",
@@ -80,6 +97,60 @@ function PaymentsPage() {
       },
       { onSuccess: () => setOpen(false) },
     );
+  };
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [paymentToEdit, setPaymentToEdit] = useState<MappedPayment | null>(null);
+  const [editForm, setEditForm] = useState({
+    amount: "",
+    method: "Transferencia",
+    status: "pendiente",
+    paidAt: "",
+  });
+
+  const openEditDialog = (p: MappedPayment) => {
+    setPaymentToEdit(p);
+    setEditForm({
+      amount: String(p.amount),
+      method: p.method,
+      status: p.status,
+      paidAt: p.paidAt ?? "",
+    });
+    setEditOpen(true);
+  };
+
+  const handleUpdate = () => {
+    if (!paymentToEdit) return;
+    if (!editForm.amount) {
+      toast.error("Completá el monto");
+      return;
+    }
+    updatePaymentMutation.mutate(
+      {
+        id: paymentToEdit.id,
+        patch: {
+          amount: parseFloat(editForm.amount),
+          method: methodToDb(editForm.method),
+          status: paymentStatusToDb(editForm.status),
+          paidAt: editForm.paidAt || null,
+        },
+      },
+      { onSuccess: () => setEditOpen(false) },
+    );
+  };
+
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [paymentToDelete, setPaymentToDelete] = useState<string | null>(null);
+
+  const handleDelete = async () => {
+    if (!paymentToDelete) return;
+    try {
+      await deletePaymentMutation.mutateAsync(paymentToDelete);
+      setDeleteOpen(false);
+      setPaymentToDelete(null);
+    } catch (error) {
+      console.error("Error:", error);
+    }
   };
 
   return (
@@ -254,16 +325,31 @@ function PaymentsPage() {
                       {formatMoney(p.amount)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {p.status !== "pagado" && (
+                      <div className="flex items-center justify-end gap-1">
+                        {p.status !== "pagado" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={markPaidMutation.isPending}
+                            onClick={() => markPaidMutation.mutate(p.id)}
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Marcar pagado
+                          </Button>
+                        )}
+                        <Button size="sm" variant="ghost" onClick={() => openEditDialog(p)}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
                         <Button
                           size="sm"
                           variant="ghost"
-                          disabled={markPaidMutation.isPending}
-                          onClick={() => markPaidMutation.mutate(p.id)}
+                          onClick={() => {
+                            setPaymentToDelete(p.id);
+                            setDeleteOpen(true);
+                          }}
                         >
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Marcar pagado
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
                         </Button>
-                      )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
@@ -272,6 +358,100 @@ function PaymentsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar pago</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-1.5">
+                <Label>Monto (USD) *</Label>
+                <Input
+                  type="number"
+                  value={editForm.amount}
+                  onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Método</Label>
+                <Select
+                  value={editForm.method}
+                  onValueChange={(v) => setEditForm({ ...editForm, method: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {METHODS.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-1.5">
+                <Label>Estado</Label>
+                <Select
+                  value={editForm.status}
+                  onValueChange={(v) => setEditForm({ ...editForm, status: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pendiente">Pendiente</SelectItem>
+                    <SelectItem value="pagado">Pagado</SelectItem>
+                    <SelectItem value="vencido">Vencido</SelectItem>
+                    <SelectItem value="cancelado">Cancelado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Fecha de pago</Label>
+                <Input
+                  type="date"
+                  value={editForm.paidAt}
+                  onChange={(e) => setEditForm({ ...editForm, paidAt: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleUpdate} disabled={updatePaymentMutation.isPending}>
+              {updatePaymentMutation.isPending ? "Guardando…" : "Guardar cambios"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar pago</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Estás seguro de que deseas eliminar este pago? Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex justify-end gap-3">
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deletePaymentMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletePaymentMutation.isPending ? "Eliminando…" : "Eliminar"}
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

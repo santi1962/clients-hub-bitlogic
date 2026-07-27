@@ -6,7 +6,7 @@
  *
  * La conversión se hace en api-client.ts antes de entregar los datos a los hooks/páginas.
  */
-import type { Client, HostingService, Plan, ClientStatus, ServiceStatus } from "./mock-data";
+import type { Client, HostingService, Plan, ClientStatus, ServiceStatus } from "./types";
 
 // ─────────────────────────────────────────────────────────────
 // Status maps
@@ -65,6 +65,7 @@ export interface BackendClient {
   updatedAt: string;
   servicesCount: number;
   nextDueDate: string | null;
+  lastPaymentDate: string | null;
 }
 
 export interface BackendPlan {
@@ -113,7 +114,7 @@ export type HostingServiceFull = HostingService & {
 
 export function mapClient(
   raw: BackendClient,
-): Client & { servicesCount: number; nextDueDate: string | null } {
+): Client & { servicesCount: number; nextDueDate: string | null; lastPaymentDate: string | null } {
   return {
     id: raw.id,
     name: raw.name,
@@ -125,6 +126,7 @@ export function mapClient(
     createdAt: raw.createdAt?.split("T")[0] ?? "",
     servicesCount: raw.servicesCount ?? 0,
     nextDueDate: raw.nextDueDate ?? null,
+    lastPaymentDate: raw.lastPaymentDate ?? null,
   };
 }
 
@@ -489,23 +491,23 @@ export const ticketPriorityToDb = (s: string): string => TICKET_PRIORITY_TO_DB[s
 
 export interface BackendTicket {
   id: string;
-  ticketNumber: string;
-  clientId: string;
-  hostingServiceId: string | null;
+  ticket_number: string;
+  client_id: string;
+  hosting_service_id: string | null;
   subject: string;
   priority: string;
   status: string;
-  assignedTo: string | null;
-  createdBy: string | null;
-  lastMessageAt: string | null;
-  resolvedAt: string | null;
-  closedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  clientName?: string;
-  clientCompany?: string;
-  serviceDomain?: string;
-  assignedUserName?: string;
+  assigned_to: string | null;
+  created_by: string | null;
+  last_message_at: string | null;
+  resolved_at: string | null;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  client_name?: string;
+  client_company?: string;
+  service_domain?: string;
+  assigned_user_name?: string;
 }
 
 export interface MappedTicket {
@@ -532,23 +534,23 @@ export interface MappedTicket {
 export function mapTicket(raw: BackendTicket): MappedTicket {
   return {
     id: raw.id,
-    ticketNumber: raw.ticketNumber,
-    clientId: raw.clientId,
-    serviceId: raw.hostingServiceId,
+    ticketNumber: raw.ticket_number,
+    clientId: raw.client_id,
+    serviceId: raw.hosting_service_id,
     subject: raw.subject,
     priority: ticketPriorityFromDb(raw.priority),
     status: ticketStatusFromDb(raw.status),
-    assignedTo: raw.assignedTo,
-    createdBy: raw.createdBy,
-    lastMessageAt: raw.lastMessageAt,
-    resolvedAt: raw.resolvedAt,
-    closedAt: raw.closedAt,
-    createdAt: raw.createdAt,
-    updatedAt: raw.updatedAt,
-    clientName: raw.clientName,
-    clientCompany: raw.clientCompany,
-    serviceDomain: raw.serviceDomain,
-    assignedUserName: raw.assignedUserName,
+    assignedTo: raw.assigned_to,
+    createdBy: raw.created_by,
+    lastMessageAt: raw.last_message_at,
+    resolvedAt: raw.resolved_at,
+    closedAt: raw.closed_at,
+    createdAt: raw.created_at,
+    updatedAt: raw.updated_at,
+    clientName: raw.client_name,
+    clientCompany: raw.client_company,
+    serviceDomain: raw.service_domain,
+    assignedUserName: raw.assigned_user_name,
   };
 }
 

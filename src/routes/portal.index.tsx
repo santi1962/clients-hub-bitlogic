@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+﻿import { createFileRoute, Link } from "@tanstack/react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -6,22 +6,16 @@ import { StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CreditCard, ExternalLink, ArrowUpRight, AlertTriangle } from "lucide-react";
-import { formatDate, formatMoney } from "@/lib/mock-data";
-import { useAuthUser } from "@/lib/auth";
-import { useClient, useClientServices, usePlans } from "@/lib/queries";
+import { formatDate, formatMoney } from "@/lib/format";
+import { useMyClient, useMyServices, usePlans } from "@/lib/queries";
 
 export const Route = createFileRoute("/portal/")({
   component: PortalServicios,
 });
 
 function PortalServicios() {
-  const user = useAuthUser();
-  const clientId = user.clientId;
-
-  const { data: clientData, isLoading: clientLoading } = useClient(clientId);
-  const client = clientData;
-
-  const { data: servicesData, isLoading: servicesLoading } = useClientServices(clientId);
+  const { data: client, isLoading: clientLoading } = useMyClient();
+  const { data: servicesData, isLoading: servicesLoading } = useMyServices();
   const services = servicesData?.data ?? [];
 
   const { data: plansData } = usePlans();

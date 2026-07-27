@@ -16,13 +16,12 @@ import { requireStaff } from "../middlewares/requireRole.js";
 
 const router = express.Router();
 
-// Solo staff puede acceder a tareas
-router.get("/", requireStaff, listTasks);
-router.post("/", requireStaff, createTask);
-router.get("/:id", requireStaff, getTask);
-router.patch("/:id", requireStaff, updateTask);
-router.delete("/:id", requireStaff, deleteTask);
-router.post("/:id/complete", requireStaff, completeTask);
-router.post("/:id/reopen", requireStaff, reopenTask);
+router.get("/", authRequired, requireStaff, listTasks);
+router.post("/", authRequired, requireStaff, createTask);
+router.get("/:id", authRequired, requireStaff, getTask);
+router.patch("/:id", authRequired, requireStaff, updateTask);
+router.delete("/:id", authRequired, requireStaff, deleteTask);
+router.post("/:id/complete", authRequired, requireStaff, completeTask);
+router.post("/:id/reopen", authRequired, requireStaff, reopenTask);
 
 export default router;

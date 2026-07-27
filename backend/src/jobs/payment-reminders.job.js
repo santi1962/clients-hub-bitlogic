@@ -6,6 +6,8 @@
 import pool from "../db/pool.js";
 import { emailService } from "../services/email.service.js";
 import { automationSettingsService } from "../services/automation-settings.service.js";
+import { sendWhatsAppMessage } from "../services/whatsapp.service.js";
+import config from "../config/index.js";
 
 export async function paymentRemindersDaily() {
   const summary = {
@@ -43,6 +45,7 @@ export async function paymentRemindersDaily() {
         pn.due_date,
         pn.status,
         c.email as contact_email,
+        c.phone as contact_phone,
         c.company,
         (pn.due_date::date - CURRENT_DATE) as days_until_due
       FROM payment_notices pn
@@ -100,6 +103,16 @@ export async function paymentRemindersDaily() {
 
         // Send email
         const emailResult = await emailService.sendPaymentNoticeEmail(notice.id);
+
+        // Recordatorio por WhatsApp (best-effort, no bloquea si falla o no está conectado)
+        if (config.whatsapp.enabled && notice.contact_phone) {
+          const label =
+            reminderType === "reminder_due_today" ? "vence hoy" : `vence en ${daysUntilDue} días`;
+          sendWhatsAppMessage(
+            notice.contact_phone,
+            `Hola ${notice.company}, te recordamos que tu aviso de pago ${notice.notice_number} por $${notice.amount} ${label} (${notice.due_date.toISOString?.().slice(0, 10) ?? notice.due_date}). Gracias por confiar en Bitlogic.`,
+          ).catch(() => {});
+        }
 
         // Log reminder sent
         await pool.query(

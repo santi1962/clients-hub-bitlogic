@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -17,32 +18,48 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { PermissionGuard } from "@/components/permission-guard";
-import { ROLE_LABEL, permissionsFor, type Role, useAuth } from "@/lib/auth";
-import { useClients } from "@/lib/queries";
-import { MoreHorizontal, UserPlus, Shield, CheckCircle2, XCircle, Search } from "lucide-react";
+import { ROLE_LABEL, permissionsFor, type Role } from "@/lib/auth";
+import {
+  usePortalUsers,
+  useCreatePortalUser,
+  useResetUserPassword,
+  useDeletePortalUser,
+} from "@/lib/queries";
+import { KeyRound, UserPlus, Trash2, RefreshCw, Eye, EyeOff, Copy } from "lucide-react";
+import type { PortalUserRow } from "@/lib/api-client";
 import { toast } from "sonner";
+
+function portalLoginUrl() {
+  return `${window.location.origin}/login`;
+}
+
+async function copyToClipboard(text: string, label: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success(`${label} copiado`);
+  } catch {
+    toast.error("No se pudo copiar. Copiá manualmente.");
+  }
+}
+
+function CopyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-1.5">
+      <Label>{label}</Label>
+      <div className="flex gap-2">
+        <Input value={value} readOnly className="font-mono text-xs" />
+        <Button type="button" variant="outline" size="icon" onClick={() => copyToClipboard(value, label)}>
+          <Copy className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/_admin/usuarios")({
   head: () => ({ meta: [{ title: "Usuarios y permisos — Bitlogic" }] }),
@@ -53,310 +70,286 @@ export const Route = createFileRoute("/_admin/usuarios")({
   ),
 });
 
-/**
- * BACKEND:
- *  - GET /api/users (internos), GET /api/portal-users (clientes con acceso)
- *  - POST /api/users/invite { email, role }  → genera token de invitación
- *  - PATCH /api/users/:id { status, role }
- *  - Roles y permisos: la matriz vive en backend, espejada en `src/lib/auth.tsx`.
- */
-
-interface InternalUser {
-  id: string;
-  name: string;
-  email: string;
-  role: Role;
-  status: "activo" | "inactivo" | "invitado";
-  lastLogin: string;
+function generatePassword() {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$";
+  return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
-const INITIAL_INTERNAL: InternalUser[] = [];
-
-function StatusPill({ status }: { status: InternalUser["status"] }) {
-  const map = {
-    activo: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-    inactivo: "bg-muted text-muted-foreground border-border",
-    invitado: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  } as const;
+function StatusPill({ status }: { status: string | null }) {
+  if (!status) return <span className="text-sm text-muted-foreground">—</span>;
+  const map: Record<string, string> = {
+    active: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+    inactive: "bg-muted text-muted-foreground border-border",
+  };
+  const label = status === "active" ? "activo" : "inactivo";
   return (
-    <span
-      className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium ${map[status]}`}
-    >
-      {status}
+    <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium ${map[status] ?? map.inactive}`}>
+      {label}
     </span>
   );
 }
 
-function UsersPage() {
-  const { user: me } = useAuth();
-  const { data: clientsData } = useClients();
-  const [internal, setInternal] = useState<InternalUser[]>(INITIAL_INTERNAL);
-  const [query, setQuery] = useState("");
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<Role>("soporte");
-
-  const filteredInternal = useMemo(() => {
-    const q = query.toLowerCase().trim();
-    if (!q) return internal;
-    return internal.filter(
-      (u) =>
-        u.name.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q) ||
-        ROLE_LABEL[u.role].toLowerCase().includes(q),
-    );
-  }, [internal, query]);
-
-  const portalUsers = useMemo(
-    () =>
-      (clientsData?.data ?? []).map((c) => ({
-        id: c.id,
-        name: c.name,
-        email: c.email,
-        lastLogin: "—",
-        status: c.status === "activo" ? "activo" : ("inactivo" as InternalUser["status"]),
-      })),
-    [clientsData?.data],
+function PasswordInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <Input
+        type={show ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder ?? "••••••••••••"}
+        className="pr-10"
+      />
+      <button
+        type="button"
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+        onClick={() => setShow((s) => !s)}
+      >
+        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
   );
+}
 
-  const setStatus = (id: string, status: InternalUser["status"]) => {
-    setInternal((arr) => arr.map((u) => (u.id === id ? { ...u, status } : u)));
-    toast.success(
-      `Usuario ${status === "activo" ? "activado" : status === "inactivo" ? "desactivado" : "actualizado"}`,
+function CreateAccessDialog({
+  row,
+  open,
+  onClose,
+}: {
+  row: PortalUserRow;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [email, setEmail] = useState(row.email ?? "");
+  const [password, setPassword] = useState(() => generatePassword());
+  const mutation = useCreatePortalUser();
+
+  const handleSubmit = () => {
+    mutation.mutate(
+      { clientId: row.clientId, name: row.clientCompany ?? row.clientName, email, password },
+      { onSuccess: onClose },
     );
-  };
-  const setRole = (id: string, role: Role) => {
-    setInternal((arr) => arr.map((u) => (u.id === id ? { ...u, role } : u)));
-    toast.success("Rol actualizado");
-  };
-  const sendInvite = () => {
-    if (!inviteEmail) return;
-    setInternal((arr) => [
-      ...arr,
-      {
-        id: `u-${Math.random().toString(36).slice(2, 6)}`,
-        name: inviteEmail.split("@")[0],
-        email: inviteEmail,
-        role: inviteRole,
-        status: "invitado",
-        lastLogin: "—",
-      },
-    ]);
-    setInviteEmail("");
-    setInviteOpen(false);
-    toast.success("Invitación enviada");
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Usuarios y permisos</h1>
-          <p className="text-sm text-muted-foreground">
-            Equipo interno y clientes con acceso al portal.
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Crear acceso al portal</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Cliente: <span className="font-medium text-foreground">{row.clientCompany ?? row.clientName}</span>
+        </p>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>Email</Label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="cliente@empresa.com"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Contraseña</Label>
+            <PasswordInput value={password} onChange={setPassword} />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setPassword(generatePassword())}
+            >
+              <RefreshCw className="mr-1.5 h-3 w-3" /> Generar nueva
+            </Button>
+          </div>
+          <CopyField label="Link de acceso al portal" value={portalLoginUrl()} />
+          <p className="rounded-md bg-muted/40 p-2.5 text-xs text-muted-foreground">
+            Enviále al cliente el link de arriba junto con su email y contraseña. Van a poder
+            cambiar la contraseña desde el portal una vez adentro.
           </p>
         </div>
-        <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <UserPlus className="mr-2 h-4 w-4" /> Invitar usuario
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Invitar a un nuevo usuario</DialogTitle>
-              <DialogDescription>
-                Recibirá un email con un enlace para crear su contraseña.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>Email</Label>
-                <Input
-                  type="email"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="persona@empresa.com"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Rol</Label>
-                <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as Role)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.keys(ROLE_LABEL) as Role[])
-                      .filter((r) => r !== "cliente")
-                      .map((r) => (
-                        <SelectItem key={r} value={r}>
-                          {ROLE_LABEL[r]}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setInviteOpen(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={sendInvite}>Enviar invitación</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button disabled={!email || !password || mutation.isPending} onClick={handleSubmit}>
+            {mutation.isPending ? "Creando..." : "Crear acceso"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ResetPasswordDialog({
+  row,
+  open,
+  onClose,
+}: {
+  row: PortalUserRow;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [password, setPassword] = useState(() => generatePassword());
+  const mutation = useResetUserPassword();
+
+  const handleSubmit = () => {
+    mutation.mutate(
+      { userId: row.userId!, newPassword: password },
+      { onSuccess: onClose },
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Restablecer contraseña</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Cliente: <span className="font-medium text-foreground">{row.clientCompany ?? row.clientName}</span>
+          <br />
+          Email: <span className="font-medium text-foreground">{row.email}</span>
+        </p>
+        <div className="space-y-1.5">
+          <Label>Nueva contraseña</Label>
+          <PasswordInput value={password} onChange={setPassword} />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => setPassword(generatePassword())}
+          >
+            <RefreshCw className="mr-1.5 h-3 w-3" /> Generar nueva
+          </Button>
+        </div>
+        <CopyField label="Link de acceso al portal" value={portalLoginUrl()} />
+        <p className="rounded-md bg-muted/40 p-2.5 text-xs text-muted-foreground">
+          Copiá la nueva contraseña y el link de arriba, y enviáselos al cliente.
+        </p>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button disabled={!password || mutation.isPending} onClick={handleSubmit}>
+            {mutation.isPending ? "Restableciendo..." : "Restablecer"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PortalUsersTab() {
+  const { data, isLoading } = usePortalUsers();
+  const deleteMutation = useDeletePortalUser();
+  const [createFor, setCreateFor] = useState<PortalUserRow | null>(null);
+  const [resetFor, setResetFor] = useState<PortalUserRow | null>(null);
+
+  const rows = data?.data ?? [];
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Acceso al portal de clientes</CardTitle>
+          <CardDescription>
+            Creá credenciales para que tus clientes ingresen a <code>/portal</code>.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="space-y-2 p-6">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Email portal</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead>Último acceso</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow key={row.clientId}>
+                    <TableCell className="font-medium">
+                      {row.clientCompany ?? row.clientName}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {row.email ?? <span className="italic text-muted-foreground/60">Sin acceso</span>}
+                    </TableCell>
+                    <TableCell>
+                      {row.userId ? (
+                        <StatusPill status={row.status} />
+                      ) : (
+                        <span className="inline-flex items-center rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                          sin cuenta
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {row.lastLoginAt ? new Date(row.lastLoginAt).toLocaleDateString("es-AR") : "—"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {!row.userId ? (
+                          <Button size="sm" variant="outline" onClick={() => setCreateFor(row)}>
+                            <UserPlus className="mr-1.5 h-3.5 w-3.5" /> Crear acceso
+                          </Button>
+                        ) : (
+                          <>
+                            <Button size="sm" variant="ghost" onClick={() => setResetFor(row)}>
+                              <KeyRound className="mr-1.5 h-3.5 w-3.5" /> Restablecer contraseña
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => deleteMutation.mutate(row.userId!)}
+                              disabled={deleteMutation.isPending}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {createFor && (
+        <CreateAccessDialog row={createFor} open onClose={() => setCreateFor(null)} />
+      )}
+      {resetFor && (
+        <ResetPasswordDialog row={resetFor} open onClose={() => setResetFor(null)} />
+      )}
+    </>
+  );
+}
+
+function UsersPage() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Usuarios y permisos</h1>
+        <p className="text-sm text-muted-foreground">
+          Equipo interno y clientes con acceso al portal.
+        </p>
       </div>
 
-      <Tabs defaultValue="internos">
+      <Tabs defaultValue="portal">
         <TabsList>
-          <TabsTrigger value="internos">Internos ({internal.length})</TabsTrigger>
-          <TabsTrigger value="portal">Clientes con portal ({portalUsers.length})</TabsTrigger>
+          <TabsTrigger value="portal">Clientes con portal</TabsTrigger>
           <TabsTrigger value="roles">Matriz de roles</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="internos" className="space-y-4">
-          <div className="relative max-w-sm">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por nombre, email o rol…"
-              className="pl-9"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </div>
-
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Usuario</TableHead>
-                    <TableHead>Rol</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead>Último acceso</TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredInternal.map((u) => (
-                    <TableRow key={u.id}>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
-                            {u.name
-                              .split(" ")
-                              .map((p) => p[0])
-                              .slice(0, 2)
-                              .join("")}
-                          </div>
-                          <div className="leading-tight">
-                            <div className="text-sm font-medium">
-                              {u.name}
-                              {u.id === me.id && (
-                                <span className="ml-2 text-[10px] text-muted-foreground">
-                                  (vos)
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-xs text-muted-foreground">{u.email}</div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{ROLE_LABEL[u.role]}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <StatusPill status={u.status} />
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{u.lastLogin}</TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-                            {u.status !== "activo" && (
-                              <DropdownMenuItem onClick={() => setStatus(u.id, "activo")}>
-                                <CheckCircle2 className="mr-2 h-4 w-4" /> Activar
-                              </DropdownMenuItem>
-                            )}
-                            {u.status === "activo" && (
-                              <DropdownMenuItem onClick={() => setStatus(u.id, "inactivo")}>
-                                <XCircle className="mr-2 h-4 w-4" /> Desactivar
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem onClick={() => toast.success("Invitación reenviada")}>
-                              <UserPlus className="mr-2 h-4 w-4" /> Reenviar invitación
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                              Cambiar rol
-                            </DropdownMenuLabel>
-                            {(Object.keys(ROLE_LABEL) as Role[])
-                              .filter((r) => r !== "cliente")
-                              .map((r) => (
-                                <DropdownMenuItem key={r} onClick={() => setRole(u.id, r)}>
-                                  <Shield className="mr-2 h-4 w-4" /> {ROLE_LABEL[r]}
-                                </DropdownMenuItem>
-                              ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="portal">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Clientes con acceso al portal</CardTitle>
-              <CardDescription>
-                Usuarios con rol <Badge variant="secondary">Cliente</Badge> que pueden ingresar a{" "}
-                <code>/portal</code>.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead>Último acceso</TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {portalUsers.map((u) => (
-                    <TableRow key={u.id}>
-                      <TableCell className="font-medium">{u.name}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{u.email}</TableCell>
-                      <TableCell>
-                        <StatusPill status={u.status} />
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{u.lastLogin}</TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => toast.success("Invitación enviada al cliente")}
-                        >
-                          Enviar invitación
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+        <TabsContent value="portal" className="mt-4">
+          <PortalUsersTab />
         </TabsContent>
 
         <TabsContent value="roles">
@@ -364,8 +357,7 @@ function UsersPage() {
             <CardHeader>
               <CardTitle className="text-base">Matriz de roles y permisos</CardTitle>
               <CardDescription>
-                Visualización del acceso a cada sección por rol. La lógica final vivirá en el
-                backend.
+                Visualización del acceso a cada sección por rol.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

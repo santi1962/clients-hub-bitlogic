@@ -28,6 +28,7 @@ import { SetupServices } from "@/components/setup/setup-services";
 import { SetupDomains } from "@/components/setup/setup-domains";
 import { SetupUsers } from "@/components/setup/setup-users";
 import { SetupReadiness } from "@/components/setup/setup-readiness";
+import { request } from "@/lib/api-client";
 
 export const Route = createFileRoute("/setup-inicial")({
   head: () => ({
@@ -43,8 +44,7 @@ function SetupInicial() {
   useEffect(() => {
     const checkReadiness = async () => {
       try {
-        const res = await fetch("/api/settings/readiness");
-        const data = await res.json();
+        const data = await request("/settings/readiness");
         setReadiness(data);
       } catch (err) {
         console.error("Error checking readiness:", err);

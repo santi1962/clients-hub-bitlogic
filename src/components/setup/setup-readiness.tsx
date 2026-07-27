@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, XCircle, AlertCircle, RotateCw } from "lucide-react";
+import { request } from "@/lib/api-client";
 
 interface ReadinessData {
   ready: boolean;
@@ -43,11 +44,8 @@ export function SetupReadiness({ readiness: initialReadiness }: ReadinessProps) 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      const res = await fetch("/api/settings/readiness");
-      if (res.ok) {
-        const data = await res.json();
-        setReadiness(data);
-      }
+      const data = await request<ReadinessData>("/settings/readiness");
+      setReadiness(data);
     } catch (err) {
       console.error("Error refreshing readiness:", err);
     } finally {

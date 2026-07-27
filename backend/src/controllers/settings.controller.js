@@ -1,6 +1,12 @@
 import pool from "../db/pool.js";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
 import { auditService } from "../services/audit.service.js";
 import * as settingsService from "../services/settings.service.js";
+import config from "../config/index.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PLACEHOLDER_KEYWORDS = ["demo", "test", "fake", "placeholder", "example", "sample"];
 
@@ -172,50 +178,19 @@ export async function updatePaymentSettings(req, res) {
 
 /**
  * GET /api/settings/email
- * Obtiene la configuración SMTP
+ * Devuelve la configuración SMTP REAL (leída de backend/.env), solo lectura.
+ * No existe un PUT: el SMTP se configura editando .env y reiniciando el server,
+ * igual que el resto de los secretos de la app (JWT, DB, Hestia, MercadoPago).
  */
 export async function getEmailSettings(req, res) {
   res.json({
-    smtpHost: "smtp.bitlogic.com.ar",
-    smtpPort: 587,
-    smtpUser: "no-reply@bitlogic.com.ar",
-    smtpPassword: "", // Nunca devolvemos contraseña
-    fromName: "Bitlogic",
-    fromEmail: "no-reply@bitlogic.com.ar",
-  });
-}
-
-/**
- * PUT /api/settings/email
- * Actualiza la configuración SMTP
- */
-export async function updateEmailSettings(req, res) {
-  res.json({
-    ...req.body,
-    updatedAt: new Date().toISOString(),
-  });
-}
-
-/**
- * GET /api/settings/whatsapp
- * Obtiene la configuración de WhatsApp
- */
-export async function getWhatsappSettings(req, res) {
-  res.json({
-    contactNumber: "+54 9 11 5555 1234",
-    defaultMessage: "Hola {cliente}, te recordamos que tu servicio {servicio} vence el {fecha}. Cualquier consulta estamos disponibles. — Bitlogic",
-    enabled: false,
-  });
-}
-
-/**
- * PUT /api/settings/whatsapp
- * Actualiza la configuración de WhatsApp
- */
-export async function updateWhatsappSettings(req, res) {
-  res.json({
-    ...req.body,
-    updatedAt: new Date().toISOString(),
+    smtpHost: config.smtp.host || "",
+    smtpPort: config.smtp.port,
+    smtpUser: config.smtp.user || "",
+    smtpConfigured: !!(config.smtp.host && config.smtp.user && config.smtp.pass),
+    fromName: config.smtp.fromName,
+    fromEmail: config.smtp.fromEmail,
+    editableNote: "Se edita en backend/.env (SMTP_HOST, SMTP_USER, SMTP_PASS) y requiere reiniciar el servidor.",
   });
 }
 
@@ -297,6 +272,64 @@ export async function getReadinessStatus(req, res, next) {
             .map(([k]) => k)
         : [],
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getEmailTemplates(req, res, next) {
+  try {
+    const { rows } = await pool.query("SELECT id, subject, body FROM email_templates ORDER BY id");
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateEmailTemplate(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { subject, body } = req.body ?? {};
+    if (!subject || !body) {
+      return res.status(400).json({ error: { message: "subject y body son requeridos" } });
+    }
+    await pool.query(
+      `INSERT INTO email_templates (id, subject, body, updated_at)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (id) DO UPDATE SET subject = $2, body = $3, updated_at = now()`,
+      [id, subject, body],
+    );
+    res.json({ id, subject, body });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function uploadCompanyLogo(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: { message: "No se recibió ningún archivo" } });
+    }
+    const logoUrl = `/api/settings/company/logo/${req.file.filename}`;
+    await settingsService.updateCompanyLogo(logoUrl);
+    res.json({ logoUrl });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function serveCompanyLogo(req, res, next) {
+  try {
+    const { filename } = req.params;
+    const safe = path.basename(filename);
+    if (safe !== filename || filename.includes("..")) {
+      return res.status(400).json({ error: { message: "Nombre de archivo inválido" } });
+    }
+    const filePath = path.join(__dirname, "../../uploads/logos", safe);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: { message: "Logo no encontrado" } });
+    }
+    res.sendFile(filePath);
   } catch (err) {
     next(err);
   }

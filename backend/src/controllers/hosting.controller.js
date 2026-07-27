@@ -1,6 +1,7 @@
 import * as hostingService from "../services/hosting.service.js";
 import { hestiaService } from "../services/hestia.service.js";
 import { auditService } from "../services/audit.service.js";
+import { emailService } from "../services/email.service.js";
 
 // ── Plans ─────────────────────────────────────────────────────
 export async function listPlans(req, res, next) {
@@ -56,7 +57,16 @@ export async function getService(req, res, next) {
 
 export async function createService(req, res, next) {
   try {
-    res.status(201).json(await hostingService.createService(req.body ?? {}));
+    const service = await hostingService.createService(req.body ?? {});
+    await auditService.logAction({
+      user: req.user,
+      action: "create",
+      entityType: "servicio",
+      entityId: service.id,
+      entityName: service.domain,
+      newValues: req.body,
+    });
+    res.status(201).json(service);
   } catch (err) {
     next(err);
   }
@@ -64,7 +74,18 @@ export async function createService(req, res, next) {
 
 export async function updateService(req, res, next) {
   try {
-    res.json(await hostingService.updateService(req.params.id, req.body ?? {}));
+    const oldService = await hostingService.getServiceById(req.params.id);
+    const service = await hostingService.updateService(req.params.id, req.body ?? {});
+    await auditService.logAction({
+      user: req.user,
+      action: "editar",
+      entityType: "servicio",
+      entityId: service.id,
+      entityName: service.domain,
+      oldValues: oldService,
+      newValues: req.body,
+    });
+    res.json(service);
   } catch (err) {
     next(err);
   }
@@ -72,7 +93,15 @@ export async function updateService(req, res, next) {
 
 export async function deleteService(req, res, next) {
   try {
+    const service = await hostingService.getServiceById(req.params.id);
     await hostingService.deleteService(req.params.id);
+    await auditService.logAction({
+      user: req.user,
+      action: "eliminar",
+      entityType: "servicio",
+      entityId: req.params.id,
+      entityName: service.domain,
+    });
     res.status(204).send();
   } catch (err) {
     next(err);
@@ -81,7 +110,17 @@ export async function deleteService(req, res, next) {
 
 export async function suspendService(req, res, next) {
   try {
-    res.json(await hostingService.suspendService(req.params.id));
+    const service = await hostingService.suspendService(req.params.id);
+    await auditService.logAction({
+      user: req.user,
+      action: "suspender",
+      entityType: "servicio",
+      entityId: service.id,
+      entityName: service.domain,
+      newValues: { status: "suspended" },
+    });
+    emailService.sendServiceSuspendedEmail(service.id).catch(() => {});
+    res.json(service);
   } catch (err) {
     next(err);
   }
@@ -89,7 +128,17 @@ export async function suspendService(req, res, next) {
 
 export async function reactivateService(req, res, next) {
   try {
-    res.json(await hostingService.reactivateService(req.params.id));
+    const service = await hostingService.reactivateService(req.params.id);
+    await auditService.logAction({
+      user: req.user,
+      action: "reactivar",
+      entityType: "servicio",
+      entityId: service.id,
+      entityName: service.domain,
+      newValues: { status: "active" },
+    });
+    emailService.sendServiceReactivatedEmail(service.id).catch(() => {});
+    res.json(service);
   } catch (err) {
     next(err);
   }
@@ -98,7 +147,18 @@ export async function reactivateService(req, res, next) {
 export async function changePlan(req, res, next) {
   try {
     const { planId } = req.body ?? {};
-    res.json(await hostingService.changeServicePlan(req.params.id, planId));
+    const oldService = await hostingService.getServiceById(req.params.id);
+    const service = await hostingService.changeServicePlan(req.params.id, planId);
+    await auditService.logAction({
+      user: req.user,
+      action: "cambiar plan",
+      entityType: "servicio",
+      entityId: service.id,
+      entityName: service.domain,
+      oldValues: { planId: oldService.planId, monthlyPrice: oldService.monthlyPrice },
+      newValues: { planId: service.planId, monthlyPrice: service.monthlyPrice },
+    });
+    res.json(service);
   } catch (err) {
     next(err);
   }

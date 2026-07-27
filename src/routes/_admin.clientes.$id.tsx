@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+﻿import { createFileRoute, Link } from "@tanstack/react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,7 +27,7 @@ import {
   FileText,
   Loader2,
 } from "lucide-react";
-import { getPlan, formatDate, formatMoney, formatPeriod } from "@/lib/mock-data";
+import { formatDate, formatMoney, formatPeriod } from "@/lib/format";
 import { ActivityTimeline } from "@/components/activity-timeline";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import {
@@ -229,7 +229,7 @@ function ClientDetail() {
                     {services.map((s) => (
                       <TableRow key={s.id}>
                         <TableCell className="font-medium">{s.domain}</TableCell>
-                        <TableCell>{s.planName ?? getPlan(s.planId)?.name ?? "—"}</TableCell>
+                        <TableCell>{s.planName ?? "—"}</TableCell>
                         <TableCell>
                           <StatusBadge status={s.status} />
                         </TableCell>
@@ -414,7 +414,8 @@ function ClientDetail() {
         </TabsContent>
       </Tabs>
 
-      <ActivityTimeline title={`Actividad de ${client.name}`} filter={{ clientId: id }} />
+      <ActivityTimeline title={`Actividad de ${client.name}`} filter={{ entityId: id }} />
     </div>
   );
 }
+

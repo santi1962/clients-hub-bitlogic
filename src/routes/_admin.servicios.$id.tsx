@@ -1,4 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+﻿import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -29,7 +30,17 @@ import {
   User as UserIcon,
   Loader2,
   AlertTriangle,
+  Pencil,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   Table,
@@ -41,17 +52,30 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/empty-state";
-import { formatDate, formatMoney, formatPeriod } from "@/lib/mock-data";
+import { formatDate, formatMoney, formatPeriod } from "@/lib/format";
 import { ActivityTimeline } from "@/components/activity-timeline";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import {
   useService,
   useSuspendService,
   useReactivateService,
+  useUpdateService,
   useNotices,
   usePayments,
   useDomains,
+  useCreateNotice,
+  useCreatePayment,
+  useChangeServicePlan,
+  usePlans,
 } from "@/lib/queries";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 export const Route = createFileRoute("/_admin/servicios/$id")({
   head: () => ({ meta: [{ title: "Servicio — Bitlogic" }] }),
@@ -103,6 +127,41 @@ function ServiceDetail() {
   const { data: s, isLoading, isError } = useService(id);
   const suspendMutation = useSuspendService();
   const reactivateMutation = useReactivateService();
+  const updateMutation = useUpdateService(id);
+  const createNoticeMutation = useCreateNotice();
+  const createPaymentMutation = useCreatePayment();
+  const changePlanMutation = useChangeServicePlan();
+  const { data: plansData } = usePlans();
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editData, setEditData] = useState({ nextDueDate: "", monthlyPrice: "", hestiaUser: "", hestiaUrl: "", notes: "" });
+
+  // Generar aviso dialog
+  const [noticeOpen, setNoticeOpen] = useState(false);
+  const now = new Date();
+  const [noticeData, setNoticeData] = useState({
+    periodMonth: String(now.getMonth() + 1),
+    periodYear: String(now.getFullYear()),
+    amount: "",
+    dueDate: "",
+    notes: "",
+  });
+
+  // Registrar pago dialog
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [paymentData, setPaymentData] = useState({
+    amount: "",
+    method: "transfer",
+    paidAt: new Date().toISOString().split("T")[0],
+    periodMonth: String(now.getMonth() + 1),
+    periodYear: String(now.getFullYear()),
+    reference: "",
+  });
+
+  // Cambiar plan dialog
+  const [planOpen, setPlanOpen] = useState(false);
+  const [newPlanId, setNewPlanId] = useState("");
+
   const { data: noticesData, isLoading: noticesLoading } = useNotices({ serviceId: id });
   const { data: paymentsData, isLoading: paymentsLoading } = usePayments({ serviceId: id });
   const { data: domainsData, isLoading: domainsLoading } = useDomains({ serviceId: id });
@@ -183,19 +242,9 @@ function ServiceDetail() {
           <StatusBadge status={s.status} className="ml-2" />
         </div>
         <div className="flex flex-wrap gap-2">
-          <ConfirmAction
-            trigger={
-              <Button
-                variant="outline"
-                disabled={suspendMutation.isPending || reactivateMutation.isPending}
-              >
-                <CheckCircle2 className="h-4 w-4" /> Marcar pagado
-              </Button>
-            }
-            title="Marcar pago como recibido"
-            description={`Se registrará el pago del período actual para ${s.domain}.`}
-            onConfirm={() => toast.success("Pago registrado (próximamente conectado al backend)")}
-          />
+          <Button variant="outline" onClick={() => { setPaymentData(d => ({ ...d, amount: String(s.monthlyPrice ?? "") })); setPaymentOpen(true); }}>
+            <CheckCircle2 className="h-4 w-4" /> Marcar pagado
+          </Button>
           {isSuspended ? (
             <ConfirmAction
               trigger={
@@ -230,10 +279,25 @@ function ServiceDetail() {
               destructive
             />
           )}
-          <Button variant="outline">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setEditData({
+                nextDueDate: s.nextDueDate?.split("T")[0] ?? "",
+                monthlyPrice: String(s.monthlyPrice),
+                hestiaUser: s.hestiaUser ?? "",
+                hestiaUrl: s.hestiaUrl ?? "",
+                notes: s.notes ?? "",
+              });
+              setEditOpen(true);
+            }}
+          >
+            <Pencil className="h-4 w-4" /> Editar
+          </Button>
+          <Button variant="outline" onClick={() => { setNewPlanId(""); setPlanOpen(true); }}>
             <Repeat className="h-4 w-4" /> Cambiar plan
           </Button>
-          <Button onClick={() => toast.success("Aviso generado (próximamente conectado)")}>
+          <Button onClick={() => { setNoticeData(d => ({ ...d, amount: String(s.monthlyPrice ?? "") })); setNoticeOpen(true); }}>
             <FileText className="h-4 w-4" /> Generar aviso
           </Button>
         </div>
@@ -504,7 +568,228 @@ function ServiceDetail() {
         </TabsContent>
       </Tabs>
 
-      <ActivityTimeline title={`Actividad de ${s.domain}`} filter={{ serviceId: s.id }} />
+      <ActivityTimeline title={`Actividad de ${s.domain}`} filter={{ entityId: s.id }} />
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar servicio</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Próximo vencimiento</Label>
+              <Input
+                type="date"
+                value={editData.nextDueDate}
+                onChange={(e) => setEditData({ ...editData, nextDueDate: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Precio mensual</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={editData.monthlyPrice}
+                onChange={(e) => setEditData({ ...editData, monthlyPrice: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Usuario Hestia</Label>
+              <Input
+                value={editData.hestiaUser}
+                onChange={(e) => setEditData({ ...editData, hestiaUser: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>URL Hestia</Label>
+              <Input
+                value={editData.hestiaUrl}
+                onChange={(e) => setEditData({ ...editData, hestiaUrl: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Observaciones internas</Label>
+              <Input
+                value={editData.notes}
+                onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={updateMutation.isPending}
+              onClick={() => {
+                updateMutation.mutate(
+                  {
+                    nextDueDate: editData.nextDueDate,
+                    monthlyPrice: parseFloat(editData.monthlyPrice),
+                    hestiaUsername: editData.hestiaUser,
+                    hestiaUrl: editData.hestiaUrl,
+                    internalNotes: editData.notes,
+                  },
+                  { onSuccess: () => setEditOpen(false) }
+                );
+              }}
+            >
+              {updateMutation.isPending ? "Guardando..." : "Guardar cambios"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Generar aviso dialog ── */}
+      <Dialog open={noticeOpen} onOpenChange={setNoticeOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Generar aviso de pago</DialogTitle></DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Mes</Label>
+                <Select value={noticeData.periodMonth} onValueChange={v => setNoticeData(d => ({ ...d, periodMonth: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["1","2","3","4","5","6","7","8","9","10","11","12"].map(m => (
+                      <SelectItem key={m} value={m}>{new Date(2000, parseInt(m)-1).toLocaleString("es-AR", { month: "long" })}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Año</Label>
+                <Input value={noticeData.periodYear} onChange={e => setNoticeData(d => ({ ...d, periodYear: e.target.value }))} placeholder="2025" />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Monto ($)</Label>
+              <Input type="number" value={noticeData.amount} onChange={e => setNoticeData(d => ({ ...d, amount: e.target.value }))} placeholder="0.00" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Fecha de vencimiento</Label>
+              <Input type="date" value={noticeData.dueDate} onChange={e => setNoticeData(d => ({ ...d, dueDate: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Notas internas (opcional)</Label>
+              <Textarea value={noticeData.notes} onChange={e => setNoticeData(d => ({ ...d, notes: e.target.value }))} rows={2} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNoticeOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={!noticeData.amount || !noticeData.dueDate || createNoticeMutation.isPending}
+              onClick={() => {
+                createNoticeMutation.mutate(
+                  { clientId: s.clientId, hostingServiceId: id, periodMonth: parseInt(noticeData.periodMonth), periodYear: parseInt(noticeData.periodYear), dueDate: noticeData.dueDate, amount: parseFloat(noticeData.amount), notes: noticeData.notes || undefined },
+                  { onSuccess: () => setNoticeOpen(false) }
+                );
+              }}
+            >
+              {createNoticeMutation.isPending ? "Generando..." : "Generar aviso"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Registrar pago dialog ── */}
+      <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Registrar pago</DialogTitle></DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Mes</Label>
+                <Select value={paymentData.periodMonth} onValueChange={v => setPaymentData(d => ({ ...d, periodMonth: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["1","2","3","4","5","6","7","8","9","10","11","12"].map(m => (
+                      <SelectItem key={m} value={m}>{new Date(2000, parseInt(m)-1).toLocaleString("es-AR", { month: "long" })}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Año</Label>
+                <Input value={paymentData.periodYear} onChange={e => setPaymentData(d => ({ ...d, periodYear: e.target.value }))} placeholder="2025" />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Monto ($)</Label>
+              <Input type="number" value={paymentData.amount} onChange={e => setPaymentData(d => ({ ...d, amount: e.target.value }))} placeholder="0.00" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Método</Label>
+              <Select value={paymentData.method} onValueChange={v => setPaymentData(d => ({ ...d, method: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="transfer">Transferencia</SelectItem>
+                  <SelectItem value="cash">Efectivo</SelectItem>
+                  <SelectItem value="mercadopago">MercadoPago</SelectItem>
+                  <SelectItem value="paypal">PayPal</SelectItem>
+                  <SelectItem value="manual">Manual / otro</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Fecha de pago</Label>
+              <Input type="date" value={paymentData.paidAt} onChange={e => setPaymentData(d => ({ ...d, paidAt: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Referencia (opcional)</Label>
+              <Input value={paymentData.reference} onChange={e => setPaymentData(d => ({ ...d, reference: e.target.value }))} placeholder="N° de transferencia, etc." />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPaymentOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={!paymentData.amount || createPaymentMutation.isPending}
+              onClick={() => {
+                createPaymentMutation.mutate(
+                  { clientId: s.clientId, hostingServiceId: id, periodMonth: parseInt(paymentData.periodMonth), periodYear: parseInt(paymentData.periodYear), amount: parseFloat(paymentData.amount), method: paymentData.method, paidAt: paymentData.paidAt, reference: paymentData.reference || undefined },
+                  { onSuccess: () => setPaymentOpen(false) }
+                );
+              }}
+            >
+              {createPaymentMutation.isPending ? "Registrando..." : "Registrar pago"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Cambiar plan dialog ── */}
+      <Dialog open={planOpen} onOpenChange={setPlanOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Cambiar plan</DialogTitle></DialogHeader>
+          <div className="grid gap-4 py-4">
+            <p className="text-sm text-muted-foreground">Plan actual: <span className="font-medium text-foreground">{s.planName ?? "—"}</span></p>
+            <div className="space-y-1.5">
+              <Label>Nuevo plan</Label>
+              <Select value={newPlanId} onValueChange={setNewPlanId}>
+                <SelectTrigger><SelectValue placeholder="Seleccioná un plan" /></SelectTrigger>
+                <SelectContent>
+                  {(plansData?.data ?? []).filter(p => p.id !== s.planId).map(p => (
+                    <SelectItem key={p.id} value={p.id}>{p.name} — {formatMoney(p.monthlyPrice)}/mes</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPlanOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={!newPlanId || changePlanMutation.isPending}
+              onClick={() => {
+                changePlanMutation.mutate(
+                  { id, planId: newPlanId },
+                  { onSuccess: () => setPlanOpen(false) }
+                );
+              }}
+            >
+              {changePlanMutation.isPending ? "Cambiando..." : "Cambiar plan"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+

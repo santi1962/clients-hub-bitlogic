@@ -14,6 +14,7 @@ function formatClient(row) {
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
     servicesCount: parseInt(row.services_count ?? 0),
     nextDueDate: row.next_due_date ? new Date(row.next_due_date).toISOString() : null,
+    lastPaymentDate: row.last_payment_date ? new Date(row.last_payment_date).toISOString() : null,
   };
 }
 
@@ -46,7 +47,8 @@ export async function listClients({ search, status, page = 1, limit = 100 } = {}
       `SELECT
          c.*,
          COUNT(hs.id) FILTER (WHERE hs.status NOT IN ('cancelled','suspended')) AS services_count,
-         MIN(hs.next_due_date)             FILTER (WHERE hs.status NOT IN ('cancelled','suspended')) AS next_due_date
+         MIN(hs.next_due_date) FILTER (WHERE hs.status NOT IN ('cancelled','suspended')) AS next_due_date,
+         (SELECT MAX(p.paid_at) FROM payments p WHERE p.client_id = c.id AND p.status = 'paid') AS last_payment_date
        FROM clients c
        LEFT JOIN hosting_services hs ON hs.client_id = c.id
        ${where}

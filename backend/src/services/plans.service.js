@@ -35,14 +35,14 @@ export async function createPlan(data) {
   const {
     name,
     description,
-    storage_gb = 0,
-    websites_limit = null,
-    emails_limit = null,
-    monthly_price,
+    storageGb = 0,
+    websitesLimit = null,
+    emailsLimit = null,
+    monthlyPrice,
     status = "active",
   } = data;
 
-  if (!name || !monthly_price) {
+  if (!name || !monthlyPrice) {
     const error = new Error("El nombre y precio son requeridos");
     error.status = 400;
     throw error;
@@ -58,10 +58,10 @@ export async function createPlan(data) {
       id,
       name.trim(),
       description || null,
-      storage_gb || 0,
-      websites_limit,
-      emails_limit,
-      monthly_price,
+      storageGb || 0,
+      websitesLimit,
+      emailsLimit,
+      monthlyPrice,
       status,
     ],
   );
@@ -70,8 +70,7 @@ export async function createPlan(data) {
 }
 
 export async function updatePlan(id, data) {
-  const { name, description, storage_gb, websites_limit, emails_limit, monthly_price, status } =
-    data;
+  const { name, description, storageGb, websitesLimit, emailsLimit, monthlyPrice, status } = data;
 
   const updates = [];
   const values = [];
@@ -85,21 +84,21 @@ export async function updatePlan(id, data) {
     updates.push(`description = $${paramCount++}`);
     values.push(description || null);
   }
-  if (storage_gb !== undefined) {
+  if (storageGb !== undefined) {
     updates.push(`storage_gb = $${paramCount++}`);
-    values.push(storage_gb);
+    values.push(storageGb);
   }
-  if (websites_limit !== undefined) {
+  if (websitesLimit !== undefined) {
     updates.push(`websites_limit = $${paramCount++}`);
-    values.push(websites_limit);
+    values.push(websitesLimit);
   }
-  if (emails_limit !== undefined) {
+  if (emailsLimit !== undefined) {
     updates.push(`emails_limit = $${paramCount++}`);
-    values.push(emails_limit);
+    values.push(emailsLimit);
   }
-  if (monthly_price !== undefined) {
+  if (monthlyPrice !== undefined) {
     updates.push(`monthly_price = $${paramCount++}`);
-    values.push(monthly_price);
+    values.push(monthlyPrice);
   }
   if (status !== undefined) {
     updates.push(`status = $${paramCount++}`);

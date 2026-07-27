@@ -26,7 +26,7 @@ export function PermissionGuard({
       <div>
         <h2 className="text-lg font-semibold">Acceso restringido</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Tu rol actual <span className="font-medium text-foreground">{ROLE_LABEL[user.role]}</span>{" "}
+          Tu rol actual <span className="font-medium text-foreground">{user ? ROLE_LABEL[user.role] : ""}</span>{" "}
           no tiene permisos para acceder a esta sección.
         </p>
         <p className="mt-1 text-xs text-muted-foreground">

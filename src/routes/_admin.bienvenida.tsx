@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+﻿import { createFileRoute, Link } from "@tanstack/react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,9 @@ import {
   ListChecks,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { useDashboard } from "@/lib/queries";
+import { formatMoney, formatDate } from "@/lib/format";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/_admin/bienvenida")({
   head: () => ({ meta: [{ title: "Bienvenida — Bitlogic Client Portal" }] }),
@@ -24,8 +27,13 @@ export const Route = createFileRoute("/_admin/bienvenida")({
 
 function Welcome() {
   const { user } = useAuth();
+  const { data, isLoading } = useDashboard();
   const hour = new Date().getHours();
   const greet = hour < 12 ? "Buenos días" : hour < 19 ? "Buenas tardes" : "Buenas noches";
+
+  const upcoming = [...(data?.upcomingServices ?? []), ...(data?.upcomingDomains ?? [])]
+    .slice(0, 5);
+  const urgentTickets = (data?.recentTickets ?? []).filter((t) => t.priority === "urgent").slice(0, 5);
 
   return (
     <div className="space-y-6 max-w-6xl">
@@ -37,7 +45,7 @@ function Welcome() {
               <Sparkles className="h-3.5 w-3.5" /> Bitlogic Client Portal
             </p>
             <h1 className="mt-1 text-3xl font-semibold tracking-tight">
-              {greet}, {user.name.split(" ")[0]}
+              {greet}, {user?.name.split(" ")[0]}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               Sistema limpio, listo para comenzar.
@@ -58,10 +66,18 @@ function Welcome() {
             <CardTitle className="text-sm">Resumen del día</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <Row icon={Users} label="Clientes activos" value="0" />
-            <Row icon={Server} label="Servicios activos" value="0" />
-            <Row icon={Wallet} label="Cobrado hoy" value="$ 0" />
-            <Row icon={FileText} label="Avisos emitidos" value="0" />
+            {isLoading ? (
+              <div className="space-y-2">
+                {[1,2,3,4].map(i => <Skeleton key={i} className="h-8 w-full" />)}
+              </div>
+            ) : (
+              <>
+                <Row icon={Users} label="Clientes activos" value={String(data?.activeClients ?? 0)} />
+                <Row icon={Server} label="Servicios activos" value={String(data?.activeServices ?? 0)} />
+                <Row icon={Wallet} label="Cobrado este mes" value={formatMoney(data?.collectedThisMonth ?? 0)} />
+                <Row icon={FileText} label="Avisos vencidos" value={String(data?.overdueNoticesCount ?? 0)} />
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -73,7 +89,18 @@ function Welcome() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <p className="text-muted-foreground">Sin vencimientos próximos</p>
+            {isLoading ? (
+              <div className="space-y-2">{[1,2].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
+            ) : upcoming.length === 0 ? (
+              <p className="text-muted-foreground">Sin vencimientos próximos</p>
+            ) : (
+              upcoming.map((item) => {
+                const date = (item as any).nextDueDate ?? (item as any).expirationDate;
+                const diff = Math.round((new Date(date).getTime() - Date.now()) / 86400000);
+                const kind = (item as any).planName ? "Servicio" : "Dominio";
+                return <DueRow key={(item as any).id} domain={(item as any).domain} days={diff} kind={kind} />;
+              })
+            )}
           </CardContent>
         </Card>
 
@@ -85,7 +112,15 @@ function Welcome() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <p className="text-muted-foreground">Sin tickets urgentes</p>
+            {isLoading ? (
+              <div className="space-y-2">{[1,2].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
+            ) : urgentTickets.length === 0 ? (
+              <p className="text-muted-foreground">Sin tickets urgentes</p>
+            ) : (
+              urgentTickets.map((t) => (
+                <TicketRow key={t.id} id={t.ticketNumber ?? t.id} subject={t.subject} client={t.clientCompany} />
+              ))
+            )}
           </CardContent>
         </Card>
       </div>

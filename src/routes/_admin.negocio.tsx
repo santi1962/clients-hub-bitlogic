@@ -14,7 +14,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { getAccessToken } from "@/lib/api-client";
+import { request, getAccessToken } from "@/lib/api-client";
 
 export const Route = createFileRoute("/_admin/negocio")({
   head: () => ({ meta: [{ title: "Dashboard Negocio — Bitlogic" }] }),
@@ -24,73 +24,92 @@ export const Route = createFileRoute("/_admin/negocio")({
 interface BusinessMetrics {
   active_clients: number;
   mrr: number;
-  monthly_revenue: number;
-  annual_revenue: number;
   active_services: number;
   managed_domains: number;
   open_tickets: number;
   pending_tasks: number;
 }
 
-// TEMPORARY: Mock data only shown in DEV. Replace with real API data from /api/analytics/revenue and /api/analytics/clients
-// TODO: Connect to real endpoints that return historical revenue and client growth
-const MOCK_REVENUE_DATA = [
-  { month: "Ene", revenue: 15000 },
-  { month: "Feb", revenue: 18500 },
-  { month: "Mar", revenue: 22000 },
-  { month: "Abr", revenue: 25500 },
-  { month: "May", revenue: 28000 },
-  { month: "Jun", revenue: 31500 },
-];
+interface SystemStatus {
+  database: string;
+  smtp: string;
+  hestia: string;
+  scheduler: string;
+}
 
-const MOCK_CLIENTS_TREND = [
-  { month: "Ene", clients: 45 },
-  { month: "Feb", clients: 48 },
-  { month: "Mar", clients: 52 },
-  { month: "Abr", clients: 55 },
-  { month: "May", clients: 58 },
-  { month: "Jun", clients: 62 },
-];
+interface TrendPoint {
+  month: string;
+  revenue?: number;
+  clients?: number;
+}
+
+function statusBadge(val: string) {
+  const ok = val === "ok" || val === "configured" || val === "active";
+  const warn = val === "unconfigured" || val === "idle";
+  return (
+    <Badge className={ok ? "bg-green-600" : warn ? "bg-amber-500" : "bg-red-600"}>
+      {val === "ok" ? "OK"
+        : val === "configured" ? "Configurado"
+        : val === "unconfigured" ? "Sin configurar"
+        : val === "active" ? "Activo"
+        : val === "idle" ? "Inactivo"
+        : val === "error" ? "Error"
+        : val}
+    </Badge>
+  );
+}
 
 function NegocioPage() {
   const [metrics, setMetrics] = useState<BusinessMetrics | null>(null);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [revenueTrend, setRevenueTrend] = useState<TrendPoint[]>([]);
+  const [clientTrend, setClientTrend] = useState<TrendPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const token = getAccessToken();
 
   useEffect(() => {
-    loadMetrics();
+    loadAll();
   }, [token]);
 
-  async function loadMetrics() {
+  async function loadAll() {
     try {
       setLoading(true);
 
-      // Fetch stats from system/status endpoint
-      // Expected response: { stats: { clients: number, services: number, domains: number, mrr: number, monthly_revenue: number, tickets_open: number, tasks_pending: number } }
-      const res = await fetch("/api/system/status", {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) throw new Error("Failed to load metrics");
-      const data = await res.json();
+      const [statusData, dashData, analyticsData] = await Promise.all([
+        request<SystemStatus>("/system/status"),
+        request<{
+          activeClients: number;
+          activeServices: number;
+          monthlyRevenue: number;
+          activeDomainsCount: number;
+          openTicketsCount: number;
+          pendingTasksCount: number;
+        }>("/dashboard/admin"),
+        request<{ revenue_trend: TrendPoint[]; client_trend: TrendPoint[] }>(
+          "/dashboard/analytics"
+        ),
+      ]);
 
-      // Calculate business metrics based on real data from services
-      const activeServices = data.stats.services || 0;
-      // MRR = sum of monthly_price from all ACTIVE hosting_services (NOT hardcoded amount)
-      // Backend should calculate: SELECT SUM(monthly_price) FROM hosting_services WHERE status='activo'
-      const mrr = data.stats.mrr || data.stats.monthly_revenue || 0;
+      setSystemStatus({
+        database: statusData.database,
+        smtp: statusData.smtp,
+        hestia: statusData.hestia,
+        scheduler: statusData.scheduler,
+      });
 
       setMetrics({
-        active_clients: data.stats.clients || 0,
-        mrr: mrr,
-        monthly_revenue: mrr,
-        annual_revenue: mrr * 12,
-        active_services: activeServices,
-        managed_domains: data.stats.domains || 0,
-        open_tickets: data.stats.tickets_open || 0,
-        pending_tasks: data.stats.tasks_pending || 0,
+        active_clients: dashData.activeClients || 0,
+        mrr: dashData.monthlyRevenue || 0,
+        active_services: dashData.activeServices || 0,
+        managed_domains: dashData.activeDomainsCount || 0,
+        open_tickets: dashData.openTicketsCount || 0,
+        pending_tasks: dashData.pendingTasksCount || 0,
       });
+
+      setRevenueTrend(analyticsData.revenue_trend);
+      setClientTrend(analyticsData.client_trend);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
@@ -110,28 +129,26 @@ function NegocioPage() {
     return (
       <div className="space-y-4">
         <h1 className="text-3xl font-bold">Dashboard Ejecutivo</h1>
-        <Card className="border-red-200 bg-red-50">
+        <Card className="border-destructive/40 bg-destructive/5">
           <CardContent className="pt-6">
-            <p className="text-red-700">{error}</p>
+            <p className="text-destructive">{error}</p>
           </CardContent>
         </Card>
       </div>
     );
   }
 
+  const mrr = metrics.mrr;
+
   return (
     <div className="space-y-8">
-      {/* Header */}
       <div>
         <h1 className="text-3xl font-bold">Dashboard Ejecutivo</h1>
-        <p className="text-muted-foreground mt-2">
-          Resumen de métricas clave del negocio
-        </p>
+        <p className="text-muted-foreground mt-2">Resumen de métricas clave del negocio</p>
       </div>
 
-      {/* KPIs */}
+      {/* KPIs principales */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {/* Clientes Activos */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Clientes Activos</CardTitle>
@@ -143,7 +160,6 @@ function NegocioPage() {
           </CardContent>
         </Card>
 
-        {/* MRR */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">MRR Actual</CardTitle>
@@ -151,13 +167,12 @@ function NegocioPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">
-              ${(metrics.mrr / 1000).toFixed(1)}K
+              ${mrr >= 1000 ? `${(mrr / 1000).toFixed(1)}K` : mrr.toLocaleString("es-AR")}
             </div>
             <p className="text-xs text-muted-foreground mt-1">Ingresos mensuales recurrentes</p>
           </CardContent>
         </Card>
 
-        {/* Facturación Mensual */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Facturación Mensual</CardTitle>
@@ -165,13 +180,12 @@ function NegocioPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">
-              ${(metrics.monthly_revenue / 1000).toFixed(1)}K
+              ${mrr >= 1000 ? `${(mrr / 1000).toFixed(1)}K` : mrr.toLocaleString("es-AR")}
             </div>
             <p className="text-xs text-muted-foreground mt-1">Proyectado este mes</p>
           </CardContent>
         </Card>
 
-        {/* Facturación Anual */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Proyección Anual</CardTitle>
@@ -179,14 +193,14 @@ function NegocioPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">
-              ${(metrics.annual_revenue / 1000).toFixed(0)}K
+              ${(mrr * 12) >= 1000 ? `${((mrr * 12) / 1000).toFixed(0)}K` : (mrr * 12).toLocaleString("es-AR")}
             </div>
             <p className="text-xs text-muted-foreground mt-1">Estimada para este año</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Operacional */}
+      {/* KPIs operacionales */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -230,75 +244,83 @@ function NegocioPage() {
         </Card>
       </div>
 
-      {/* Charts */}
+      {/* Gráficos con datos reales */}
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Revenue Trend */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Tendencia de Facturación</CardTitle>
+            <CardTitle className="text-base">Facturación mensual (últimos 6 meses)</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={MOCK_REVENUE_DATA}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip formatter={(value) => `$${value}`} />
-                <Line
-                  type="monotone"
-                  dataKey="revenue"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  dot={{ fill: "#3b82f6", r: 4 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            {revenueTrend.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-12">Sin pagos registrados aún</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={revenueTrend}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" />
+                  <YAxis tickFormatter={(v) => `$${v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v}`} />
+                  <Tooltip formatter={(value: number) => [`$${value.toLocaleString("es-AR")}`, "Facturado"]} />
+                  <Line
+                    type="monotone"
+                    dataKey="revenue"
+                    stroke="#3b82f6"
+                    strokeWidth={2}
+                    dot={{ fill: "#3b82f6", r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
 
-        {/* Clients Growth */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Crecimiento de Clientes</CardTitle>
+            <CardTitle className="text-base">Clientes activos por mes</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={MOCK_CLIENTS_TREND}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="clients" fill="#10b981" />
-              </BarChart>
-            </ResponsiveContainer>
+            {clientTrend.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-12">Sin datos aún</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={clientTrend}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" />
+                  <YAxis allowDecimals={false} />
+                  <Tooltip formatter={(value: number) => [value, "Clientes"]} />
+                  <Bar dataKey="clients" fill="#10b981" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Health Status */}
-      <Card className="border-blue-200 bg-blue-50">
-        <CardHeader>
-          <CardTitle className="text-base">Estado del Sistema</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <div className="flex items-center justify-between text-sm">
-            <span>PostgreSQL</span>
-            <Badge className="bg-green-600">OK</Badge>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span>SMTP</span>
-            <Badge className="bg-green-600">Configurado</Badge>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span>HestiaCP</span>
-            <Badge className="bg-green-600">Configurado</Badge>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span>Scheduler</span>
-            <Badge className="bg-green-600">Activo</Badge>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Estado del sistema — dinámico */}
+      {systemStatus && (
+        <Card className="border-border/60 bg-card/60">
+          <CardHeader>
+            <CardTitle className="text-base">Estado del Sistema</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span>PostgreSQL</span>
+              {statusBadge(systemStatus.database)}
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span>SMTP</span>
+              {statusBadge(systemStatus.smtp)}
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span>HestiaCP</span>
+              {statusBadge(systemStatus.hestia)}
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span>Scheduler</span>
+              {statusBadge(systemStatus.scheduler)}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

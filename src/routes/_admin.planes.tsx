@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Check, Edit3, AlertTriangle, Plus, Trash2 } from "lucide-react";
-import { formatMoney, type Plan } from "@/lib/mock-data";
+import { formatMoney } from "@/lib/format";
+import type { Plan } from "@/lib/types";
 import { usePlans, useUpdatePlan, useCreatePlan, useDeletePlan } from "@/lib/queries";
 import { toast } from "sonner";
 

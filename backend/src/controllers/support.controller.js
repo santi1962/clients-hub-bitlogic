@@ -115,8 +115,21 @@ export async function addMessage(req, res) {
     const { id } = req.params;
     let { message, isInternal } = req.body;
 
-    if (!message) {
-      return res.status(400).json({ error: "message required" });
+    let attachmentUrl = null;
+    let attachmentType = null;
+    let attachmentName = null;
+
+    if (req.file) {
+      attachmentUrl = `/uploads/tickets/${req.file.filename}`;
+      attachmentName = req.file.originalname;
+      const mime = req.file.mimetype;
+      if (mime.startsWith("audio/")) attachmentType = "audio";
+      else if (mime.startsWith("image/")) attachmentType = "image";
+      else attachmentType = "file";
+    }
+
+    if (!message && !attachmentUrl) {
+      return res.status(400).json({ error: "message or file required" });
     }
 
     // Clientes nunca pueden crear mensajes internos (forzar a false)
@@ -129,8 +142,11 @@ export async function addMessage(req, res) {
       senderUserId: req.user?.id,
       senderName: req.user?.name || "Anonymous",
       senderRole: req.user?.role || "cliente",
-      message,
+      message: message || null,
       isInternal: isInternal || false,
+      attachmentUrl,
+      attachmentType,
+      attachmentName,
     });
 
     // Send email notification if message is not internal
@@ -213,5 +229,24 @@ export async function closeTicket(req, res) {
   } catch (err) {
     console.error("Error closing ticket:", err);
     res.status(500).json({ error: err.message });
+  }
+}
+
+export async function deleteTicket(req, res) {
+  try {
+    const { id } = req.params;
+    const ticket = await supportService.getTicket(id);
+    await supportService.deleteTicket(id);
+    await auditService.logAction({
+      user: req.user,
+      action: "eliminar",
+      entityType: "ticket",
+      entityId: id,
+      entityName: ticket.ticket_number,
+    });
+    res.status(204).end();
+  } catch (err) {
+    console.error("Error deleting ticket:", err);
+    res.status(err.message === "Ticket not found" ? 404 : 500).json({ error: err.message });
   }
 }

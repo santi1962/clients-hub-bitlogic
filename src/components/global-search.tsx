@@ -21,7 +21,7 @@ import {
   LayoutDashboard,
   LineChart,
 } from "lucide-react";
-import { clients, services } from "@/lib/mock-data";
+import { useClients, useServices } from "@/lib/queries";
 
 const adminLinks = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -37,6 +37,11 @@ export function GlobalSearch() {
   const [open, setOpen] = React.useState(false);
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (r) => r.location.pathname });
+
+  const { data: clientsData } = useClients({});
+  const { data: servicesData } = useServices({});
+  const clients = clientsData?.data ?? [];
+  const services = servicesData?.data ?? [];
 
   React.useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -94,49 +99,33 @@ export function GlobalSearch() {
           </CommandGroup>
           <CommandSeparator />
           <CommandGroup heading="Clientes">
-            {import.meta.env.PROD ? (
-              <CommandItem disabled>
-                <span className="text-xs text-muted-foreground italic">
-                  Búsqueda en tiempo real — conectando al backend...
-                </span>
+            {clients.map((c) => (
+              <CommandItem
+                key={c.id}
+                value={c.company + " " + c.name + " " + c.email}
+                onSelect={() => go("/clientes/$id", { id: c.id })}
+              >
+                <Users className="h-4 w-4" />
+                <div className="flex flex-col">
+                  <span>{c.company}</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {c.name} · {c.email}
+                  </span>
+                </div>
               </CommandItem>
-            ) : (
-              clients.map((c) => (
-                <CommandItem
-                  key={c.id}
-                  value={c.company + " " + c.name + " " + c.email}
-                  onSelect={() => go("/clientes/$id", { id: c.id })}
-                >
-                  <Users className="h-4 w-4" />
-                  <div className="flex flex-col">
-                    <span>{c.company}</span>
-                    <span className="text-[11px] text-muted-foreground">
-                      {c.name} · {c.email}
-                    </span>
-                  </div>
-                </CommandItem>
-              ))
-            )}
+            ))}
           </CommandGroup>
           <CommandSeparator />
           <CommandGroup heading="Servicios">
-            {import.meta.env.PROD ? (
-              <CommandItem disabled>
-                <span className="text-xs text-muted-foreground italic">
-                  Búsqueda en tiempo real — conectando al backend...
-                </span>
+            {services.map((s) => (
+              <CommandItem
+                key={s.id}
+                value={s.domain}
+                onSelect={() => go("/servicios/$id", { id: s.id })}
+              >
+                <Server className="h-4 w-4" /> {s.domain}
               </CommandItem>
-            ) : (
-              services.map((s) => (
-                <CommandItem
-                  key={s.id}
-                  value={s.domain}
-                  onSelect={() => go("/servicios/$id", { id: s.id })}
-                >
-                  <Server className="h-4 w-4" /> {s.domain}
-                </CommandItem>
-              ))
-            )}
+            ))}
           </CommandGroup>
         </CommandList>
       </CommandDialog>
