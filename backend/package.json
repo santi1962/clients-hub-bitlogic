@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Backend API para Bitlogic Client Hub",
   "type": "module",
+  "packageManager": "npm@10.9.2",
   "engines": {
     "node": ">=18.0.0"
   },
@@ -15,6 +16,7 @@
     "setup-initial": "echo 'Usar interfaz web: http://localhost:5173/setup-inicial para cargar datos reales'"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc13",
     "bcrypt": "^5.1.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -22,10 +24,17 @@
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.1.0",
+    "jimp": "^1.6.1",
     "jsonwebtoken": "^9.0.2",
+    "mercadopago": "^3.1.0",
+    "multer": "^2.2.0",
     "node-cron": "^4.3.0",
     "nodemailer": "^6.9.7",
+    "pdfkit": "^0.19.1",
     "pg": "^8.14.1",
+    "pino": "^10.3.1",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.3",
     "uuid": "^14.0.0"
   },
   "devDependencies": {
