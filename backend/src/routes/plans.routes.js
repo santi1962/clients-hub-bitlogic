@@ -1,6 +1,6 @@
 import express from "express";
 import * as plansController from "../controllers/plans.controller.js";
-import { requireAuth } from "../middlewares/auth.js";
+import { authRequired } from "../middlewares/authRequired.js";
 
 const router = express.Router();
 
@@ -11,12 +11,12 @@ router.get("/", plansController.list);
 router.get("/:id", plansController.get);
 
 // POST /api/hosting/plans
-router.post("/", requireAuth, plansController.create);
+router.post("/", authRequired, plansController.create);
 
 // PATCH /api/hosting/plans/:id
-router.patch("/:id", requireAuth, plansController.update);
+router.patch("/:id", authRequired, plansController.update);
 
 // DELETE /api/hosting/plans/:id
-router.delete("/:id", requireAuth, plansController.remove);
+router.delete("/:id", authRequired, plansController.remove);
 
 export default router;

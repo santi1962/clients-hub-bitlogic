@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import * as settingsController from "../controllers/settings.controller.js";
-import { requireAuth } from "../middlewares/auth.js";
+import { authRequired } from "../middlewares/authRequired.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const logosDir = path.join(__dirname, "../../uploads/logos");
@@ -31,31 +31,31 @@ const uploadLogo = multer({
 const router = express.Router();
 
 // Company
-router.get("/company", requireAuth, settingsController.getCompanySettings);
-router.put("/company", requireAuth, settingsController.updateCompanySettings);
-router.post("/company/logo", requireAuth, uploadLogo.single("logo"), settingsController.uploadCompanyLogo);
+router.get("/company", authRequired, settingsController.getCompanySettings);
+router.put("/company", authRequired, settingsController.updateCompanySettings);
+router.post("/company/logo", authRequired, uploadLogo.single("logo"), settingsController.uploadCompanyLogo);
 router.get("/company/logo/:filename", settingsController.serveCompanyLogo);
 
 // Billing/Facturación
-router.get("/billing", requireAuth, settingsController.getBillingSettings);
-router.put("/billing", requireAuth, settingsController.updateBillingSettings);
+router.get("/billing", authRequired, settingsController.getBillingSettings);
+router.put("/billing", authRequired, settingsController.updateBillingSettings);
 
 // Hosting/Hestia
-router.get("/hosting", requireAuth, settingsController.getHostingSettings);
-router.put("/hosting", requireAuth, settingsController.updateHostingSettings);
+router.get("/hosting", authRequired, settingsController.getHostingSettings);
+router.put("/hosting", authRequired, settingsController.updateHostingSettings);
 
 // Payments/Pagos
-router.get("/payments", requireAuth, settingsController.getPaymentSettings);
-router.put("/payments", requireAuth, settingsController.updatePaymentSettings);
+router.get("/payments", authRequired, settingsController.getPaymentSettings);
+router.put("/payments", authRequired, settingsController.updatePaymentSettings);
 
 // Email/SMTP (solo lectura — se edita en backend/.env, ver getEmailSettings)
-router.get("/email", requireAuth, settingsController.getEmailSettings);
+router.get("/email", authRequired, settingsController.getEmailSettings);
 
 // Readiness
-router.get("/readiness", requireAuth, settingsController.getReadinessStatus);
+router.get("/readiness", authRequired, settingsController.getReadinessStatus);
 
 // Email Templates
-router.get("/templates", requireAuth, settingsController.getEmailTemplates);
-router.put("/templates/:id", requireAuth, settingsController.updateEmailTemplate);
+router.get("/templates", authRequired, settingsController.getEmailTemplates);
+router.put("/templates/:id", authRequired, settingsController.updateEmailTemplate);
 
 export default router;
