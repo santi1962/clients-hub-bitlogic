@@ -26,6 +26,7 @@ backend/test/
 ├── auth.test.js                    # authRequired: token ausente/inválido/usuario inactivo/válido + rutas protegidas
 ├── portal-authorization.test.js    # Un cliente no puede ver recursos de otro client_id
 ├── mercadopago-webhook.test.js     # Verificación de firma x-signature (válida/ausente/inválida/vencida)
+├── settings-plans-authorization.test.js  # Roles reales por endpoint en Configuración y Planes, y que el portal no se vio afectado
 ├── scheduler.test.js               # Registro de jobs, lock anti-duplicados, manejo de errores
 ├── uploads.test.js                 # Política de adjuntos: tipo, tamaño, nombre de archivo
 ├── helpers/
@@ -52,7 +53,8 @@ backend/test/
 - No hay pruebas de integración con MercadoPago real (checkout real, webhook real de una cuenta real) — solo la verificación de firma, que es lo que se puede probar sin credenciales.
 - No hay pruebas end-to-end de UI/frontend (Playwright u otro), ni de Socket.IO más allá del handshake HTTP.
 - No hay pruebas de carga/performance ni de concurrencia real de PostgreSQL (el pool se mockea en los tests que lo necesitan).
-- La cobertura de código no se mide (no hay `c8`/`nyc` configurado). Los 47 tests actuales apuntan a los hallazgos de seguridad de la Fase 1C y a los endpoints más sensibles, no a cobertura exhaustiva de todos los controllers/servicios.
+- La cobertura de código no se mide (no hay `c8`/`nyc` configurado). Los 65 tests actuales apuntan a los hallazgos de seguridad encontrados y a los endpoints más sensibles, no a cobertura exhaustiva de todos los controllers/servicios.
+- `settings-plans-authorization.test.js` solo prueba los roles definidos en `users.role` (`super_admin`, `admin`, `soporte`, `finanzas`, `cliente`) contra la política real ya documentada en `docs/PRODUCTION_STATUS.md` — no cubre `soporte` explícitamente en cada endpoint (no tiene acceso a ninguno de los dos módulos, se infiere del mismo mecanismo que se prueba para `finanzas`/`cliente`).
 
 ## Verificar la firma de MercadoPago manualmente (sin credenciales reales)
 
