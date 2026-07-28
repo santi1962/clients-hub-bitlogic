@@ -32,21 +32,43 @@ Todos los módulos del panel admin y del portal cliente (Clientes, Servicios, Pl
 |---|---|
 | HestiaCP (lectura de disco/dominios) | ✅ Funcional |
 | SMTP (mailbox real en `mail.bitlogic.com.ar`) | ✅ Funciona a nivel código. ⚠️ Entrega afectada por falta de registro PTR en el proveedor del VPS (CTL Argentina) — pendiente de su lado |
-| MercadoPago (checkout + webhook) | ⚠️ Código completo, falta `MP_ACCESS_TOKEN` real de producción |
+| MercadoPago (checkout + webhook con firma verificada) | ⚠️ Código completo, falta `MP_ACCESS_TOKEN` y `MP_WEBHOOK_SECRET` reales de producción |
 | Telegram (avisos de tickets al staff) | ⚠️ Código completo y probado, falta crear el bot y cargar el token |
 | WhatsApp (Baileys, recordatorios a clientes) | ⚠️ Código completo, QR de vinculación probado contra WhatsApp real. Apagado hasta vincular el número real de la empresa |
 
 ## Bloqueantes conocidos para producción
 
-1. `MP_ACCESS_TOKEN`, `TELEGRAM_BOT_TOKEN`/`CHAT_ID` sin cargar.
+1. `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `TELEGRAM_BOT_TOKEN`/`CHAT_ID` sin cargar.
 2. PTR de la IP del VPS sin configurar por el proveedor (afecta entrega de email).
 3. No usar `npm run seed` contra la base de producción — carga datos de demo ficticios. La base real ya tiene datos de negocio cargados localmente; para producción corresponde migrar esa base (`pg_dump`/`pg_restore`), no sembrar desde cero.
-4. El webhook de MercadoPago no verifica la firma de la notificación — mitigado parcialmente (se re-consulta el pago real contra la API de MP antes de acreditar nada), pero falta la verificación real de firma. Documentado en el código (`backend/src/routes/mercadopago.routes.js`).
-5. El scheduler usa un lock en memoria (`runningJobs`), correcto para 1 sola instancia PM2 (fork, el modo actual). Si en algún momento se escala a más de una instancia, ese lock deja de garantizar exclusión — hace falta un lock en PostgreSQL (`pg_advisory_lock`) antes de escalar.
+4. El scheduler usa un lock en memoria (`runningJobs`), correcto para 1 sola instancia PM2 (fork, el modo actual). Si en algún momento se escala a más de una instancia, ese lock deja de garantizar exclusión — hace falta un lock en PostgreSQL (`pg_advisory_lock`) antes de escalar.
+5. Ninguna ruta de escritura de Configuración/Planes tiene chequeo de rol más allá de "estar autenticado" (`authRequired`) — cualquier usuario logueado, incluido un cliente del portal, podría hoy crear/editar planes o cambiar la configuración de la empresa. No es nuevo de esta fase (ya pasaba antes), solo quedó documentado al unificar el middleware de autenticación. Requiere una decisión de negocio sobre qué roles deberían poder tocar cada cosa antes de restringirlo.
+6. `npm audit` reporta 7 vulnerabilidades en el backend y 3 en el frontend — todas evaluadas y ninguna aplicada todavía (ver tabla abajo). Las de mayor severidad práctica (`bcrypt`, `nodemailer`) requieren un bump de versión mayor con pruebas dedicadas.
+
+### Hallazgos de seguridad resueltos en esta fase
+
+- **Firma del webhook de MercadoPago**: ahora se verifica `x-signature`/`x-request-id` contra la documentación oficial de MercadoPago, usando el validador que trae el propio SDK (`mercadopago`, `WebhookSignatureValidator`). Ver `backend/src/routes/mercadopago.routes.js` y `docs/TESTING.md`.
+- **Autenticación paralela**: `backend/src/middlewares/auth.js` (usado por Configuración y Planes, sin reconsultar la DB) se eliminó — todas las rutas usan ahora `authRequired.js`. De paso se corrigió que el audit log de cambios en Configuración/Planes grababa `user_id: null, user_name: "System"` siempre, por la misma causa.
+- **Warning de PostgreSQL** ("Calling client.query() when the client is already executing a query"): causado por un `SET client_encoding` redundante disparado sin esperar en el listener `connect` del pool — la base ya negocia UTF8 por default. Se quitó esa query.
+
+### `npm audit` — hallazgos evaluados (nada aplicado)
+
+| Paquete | Tipo | Alcance | Severidad npm | Riesgo práctico | Fix disponible | Acción |
+|---|---|---|---|---|---|---|
+| `bcrypt` (backend) | directo | build-time (instalación de binario nativo vía node-pre-gyp/tar) | high | Bajo — el código vulnerable no corre en runtime, solo durante `npm install` | `bcrypt@6.0.0` (mayor) | Diferido — requiere probar la migración de API |
+| `tar` (backend, transitivo vía bcrypt) | transitivo | build-time | critical (npm) | Bajo — mismo motivo que bcrypt, no se ejecuta en runtime | vía `bcrypt@6.0.0` | Diferido junto con bcrypt |
+| `nodemailer` (backend) | directo | runtime, alcanzable (se usa en cada email real) | high | Medio — varios CVEs no aplican a cómo lo usamos (no usamos OAuth2, `raw`, `jsonTransport` ni `envelope.size`); el de mayor chance real es el DoS de `addressparser` sobre direcciones de `clients.email` | `nodemailer@9.0.3` (mayor) | Diferido — prioridad más alta para una fase dedicada, requiere pruebas end-to-end con SMTP real |
+| `body-parser` (backend, transitivo vía express) | transitivo | runtime, pero no alcanzable — el bug requiere un valor de `limit` inválido y nosotros pasamos `"1mb"` (válido) | low | Muy bajo | `body-parser@1.20.6` (patch) | Diferido — no cumple "cuenta con pruebas dedicadas" en esta fase |
+| `protobufjs` (backend, transitivo vía @whiskeysockets/baileys) | transitivo | runtime solo si `WHATSAPP_ENABLED=true` (hoy `false`) | moderate | Muy bajo hoy (integración apagada); requeriría un `.proto` malicioso, no expuesto por baileys | patch dentro de 7.x | Diferido |
+| `brace-expansion` (backend y raíz) | transitivo vía `bcrypt`→node-pre-gyp y vía `nodemon`/`eslint` (dev-only) | build-time / dev-only | high (npm) | Ninguno — no se ejecuta en el servidor desplegado | patch | Diferido, sin urgencia |
+| `js-yaml`, `postcss` (raíz) | transitivos vía tooling de build (`@tanstack/react-start`, `eslint`, `tailwindcss`) | build-time, no se envía al browser | high (npm) | Ninguno en producción | patch | Diferido, sin urgencia |
+
+Ninguna actualización cumplía simultáneamente las condiciones para aplicarse en esta fase (pequeña y compatible, sin `--force`, riesgo de runtime real, con pruebas dedicadas, documentada aparte). `npm outdated` se corrió en ambos proyectos como informe adicional — hay actualizaciones menores disponibles (Radix UI, TanStack, etc.) sin relación con seguridad, no evaluadas acá.
 
 ## Dónde está la documentación
 
 - Este archivo (`docs/PRODUCTION_STATUS.md`): estado funcional y de integraciones vigente.
 - `docs/SCHEDULER.md`: horarios, timezone, cómo deshabilitar el scheduler y revisar logs de automatizaciones.
+- `docs/TESTING.md`: cómo correr los tests del backend, qué cubren y qué no.
 - `DEPLOYMENT_GUIDE.md` (raíz): guía paso a paso de deploy, ya corregida y validada.
 - `docs/archive/`: documentación histórica de sesiones de desarrollo — **no usar como referencia**, puede estar desactualizada o contradecir este documento.
