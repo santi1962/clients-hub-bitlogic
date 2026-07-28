@@ -32,3 +32,37 @@ export function mockPoolQueries(t, responses) {
     pool.query = original;
   };
 }
+
+/**
+ * Igual que mockPoolQueries, pero para el patrón de transacción manual
+ * (`const client = await pool.connect(); await client.query(...); ...;
+ * client.release()`, usado por services con BEGIN/COMMIT/ROLLBACK). Devuelve
+ * un client falso cuyo .query() consume la misma cola de respuestas
+ * canned — así un test puede verificar, por ejemplo, que tras un UPDATE con
+ * rowCount 0 nunca se llega a ejecutar la query siguiente porque el service
+ * cortó el flujo antes.
+ *
+ * @param {import('node:test').TestContext} t
+ * @param {Array<{rows: any[], rowCount?: number} | Error>} responses
+ */
+export function mockPoolConnect(t, responses) {
+  let call = 0;
+  const queries = [];
+  const original = pool.connect;
+  pool.connect = async () => ({
+    async query(sql) {
+      queries.push(sql);
+      const next = responses[call++];
+      if (next === undefined) {
+        throw new Error(`mockPoolConnect: se pidió una respuesta #${call} pero solo se programaron ${responses.length}`);
+      }
+      if (next instanceof Error) throw next;
+      return next;
+    },
+    release() {},
+  });
+  t.after(() => {
+    pool.connect = original;
+  });
+  return { restore: () => { pool.connect = original; }, queries };
+}
