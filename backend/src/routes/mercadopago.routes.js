@@ -1,6 +1,12 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
-import { MercadoPagoConfig, Preference, Payment } from "mercadopago";
+import {
+  MercadoPagoConfig,
+  Preference,
+  Payment,
+  WebhookSignatureValidator,
+  InvalidWebhookSignatureError,
+} from "mercadopago";
 import pool from "../db/pool.js";
 import config from "../config/index.js";
 import { authRequired } from "../middlewares/authRequired.js";
@@ -98,20 +104,75 @@ router.post("/checkout/:noticeId", authRequired, checkoutLimiter, async (req, re
   } catch (err) { next(err); }
 });
 
+/**
+ * Verifica la firma x-signature del webhook siguiendo la documentación
+ * oficial de MercadoPago:
+ *  - https://www.mercadopago.com.mx/developers/en/docs/checkout-pro/payment-notifications
+ *  - https://www.mercadopago.com.ar/developers/es/docs/checkout-pro/additional-content/notifications/webhooks
+ *
+ * El manifest ("id:{data.id};request-id:{x-request-id};ts:{ts};", con
+ * data.id en minúsculas tomado del QUERY STRING, no del body), el cálculo
+ * HMAC-SHA256 en hex y la comparación en tiempo constante los hace el propio
+ * validador que trae el SDK oficial (mercadopago@3.1.0, ya instalado) — no
+ * es una reimplementación propia del algoritmo.
+ *
+ * @throws {InvalidWebhookSignatureError} firma ausente, inválida o vencida.
+ * @throws {Error} con `.status` si no hay MP_WEBHOOK_SECRET configurado y no
+ *   corresponde el bypass explícito de desarrollo.
+ */
+function verifyMercadoPagoWebhookSignature(req) {
+  const { webhookSecret, allowUnsignedWebhook, webhookToleranceSeconds } = config.mercadopago;
+
+  if (!webhookSecret) {
+    if (!allowUnsignedWebhook) {
+      // Nunca se acepta sin firma "en silencio": sin secret y sin el bypass
+      // explícito de desarrollo, se rechaza. En producción allowUnsignedWebhook
+      // siempre es false (forzado en config/index.js), así que este es el
+      // único camino posible ahí.
+      const err = new Error(
+        "MP_WEBHOOK_SECRET no configurado — el webhook no puede verificarse y se rechaza. " +
+          "En desarrollo, setear MP_WEBHOOK_ALLOW_UNSIGNED=true explícitamente para probar sin firma.",
+      );
+      err.status = 503;
+      throw err;
+    }
+    log.warn("Webhook de MercadoPago aceptado SIN verificar firma (MP_WEBHOOK_ALLOW_UNSIGNED=true, no usar en producción)");
+    return;
+  }
+
+  WebhookSignatureValidator.validate({
+    xSignature: req.headers["x-signature"],
+    xRequestId: req.headers["x-request-id"],
+    dataId: req.query["data.id"],
+    secret: webhookSecret,
+    toleranceSeconds: webhookToleranceSeconds,
+  });
+}
+
 // ── POST /api/webhooks/mercadopago  (montado en /api/webhooks como /mercadopago)
 //
-// HALLAZGO DE SEGURIDAD PENDIENTE (no resuelto en esta fase de hardening,
-// requiere decisión externa): este webhook no verifica la firma
-// `x-signature`/`x-request-id` que MercadoPago envía junto al webhook
-// (ver https://www.mercadopago.com.ar/developers/es/docs/checkout-pro/additional-content/notifications/webhooks).
-// Hoy cualquiera que conozca esta URL puede simular una notificación de pago
-// aprobado. Mitigación parcial existente: se vuelve a consultar el pago real
-// contra la API de MercadoPago con el access token propio antes de acreditar
-// nada, así que un request falso no puede inventar un pago que no exista en
-// la cuenta de MercadoPago real — pero si un pago legítimo de OTRO aviso ya
-// existe, un atacante podría intentar reutilizar su `data.id` contra avisos
-// ajenos. Corregir esto es tarea de la próxima fase de seguridad, no de esta.
+// La firma no reemplaza la verificación posterior: aunque la firma sea
+// válida, el pago real se vuelve a consultar contra la API de MercadoPago
+// antes de acreditar nada (ver más abajo), y el UPDATE de payment_notices
+// sigue siendo idempotente por status = 'paid'.
 router.post("/mercadopago", webhookLimiter, async (req, res) => {
+  try {
+    verifyMercadoPagoWebhookSignature(req);
+  } catch (err) {
+    if (err instanceof InvalidWebhookSignatureError) {
+      log.warn(`Webhook de MercadoPago rechazado: firma inválida (${err.reason})`, {
+        requestId: req.requestId,
+        mpRequestId: err.requestId,
+      });
+      return res.status(401).json({ error: { message: "Firma inválida" } });
+    }
+    log.error("Webhook de MercadoPago rechazado: no se pudo verificar la firma", {
+      requestId: req.requestId,
+      err,
+    });
+    return res.status(err.status ?? 503).json({ error: { message: "Webhook no disponible" } });
+  }
+
   try {
     const { type, data } = req.body ?? {};
 
@@ -182,3 +243,4 @@ router.post("/mercadopago", webhookLimiter, async (req, res) => {
 });
 
 export default router;
+export { verifyMercadoPagoWebhookSignature };
