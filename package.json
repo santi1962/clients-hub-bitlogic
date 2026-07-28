@@ -13,7 +13,8 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test:backend": "npm --prefix backend test"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
