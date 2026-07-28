@@ -16,10 +16,10 @@
 -- real ni de prueba. Las 16 migraciones de Postgres NO se borraron — siguen
 -- siendo la fuente de verdad mientras el motor productivo sea PostgreSQL.
 --
--- REQUIERE: MariaDB 10.5+ (por RETURNING en INSERT/DELETE que van a usar las
--- queries convertidas en una fase posterior, y por CREATE SEQUENCE, DEFAULT
--- (UUID()) y CHECK, todos disponibles desde 10.2/10.3). Confirmar la versión
--- real del VPS antes de usar este archivo en la Fase DB-2.
+-- REQUIERE: MariaDB 10.5+ como piso técnico (RETURNING en INSERT/DELETE para
+-- cuando se conviertan más queries, CREATE SEQUENCE, DEFAULT (UUID()) y CHECK,
+-- todos disponibles desde 10.2/10.3). Validado además contra la versión real
+-- del VPS, MariaDB 11.4.10 (Fase DB-2.5) — ver docs/MARIADB_MIGRATION.md.
 --
 -- DECISIONES DE CONVERSIÓN (detalle completo en el informe de la Fase DB-1):
 --   - UUID de Postgres (gen_random_uuid()) -> CHAR(36) con DEFAULT (UUID()).
@@ -59,8 +59,20 @@
 --     montos de facturación).
 --
 -- Motor e idioma: InnoDB (requerido para FKs y transacciones) + utf8mb4 con
--- collation utf8mb4_unicode_ci (case-insensitive correcto para español) en
--- todas las tablas.
+-- collation utf8mb4_unicode_520_ci (la misma que usa el VPS real, ver
+-- character_set_server/collation_server en su configuración) como default de
+-- TODAS las tablas (normalizado globalmente en la Fase DB-2.5 — antes solo
+-- estaba en algunas tablas y generaba FKs con collation cruzada, ver más
+-- abajo). 6 columnas puntuales usan `COLLATE utf8mb4_bin` en vez del default
+-- de tabla: son identificadores técnicos/hashes comparados exacto, no texto
+-- de negocio buscable — token_hash (refresh_tokens y password_reset_tokens),
+-- ticket_number, notice_number, automation_settings.key y email_templates.id.
+-- En Postgres estas columnas eran TEXT con comparación case-sensitive por
+-- default; con la collation `_520_ci` de las demás columnas pasarían a
+-- case-insensitive sin querer. email/domain (users, clients,
+-- hosting_services, domains) SÍ se dejan case-insensitive a propósito —
+-- coincide con la normalización .toLowerCase() ya existente en el código y
+-- con el uso de ILIKE para búsqueda de dominios.
 --
 -- CÓMO EJECUTAR ESTE ARCHIVO (cuando llegue la Fase DB-2): está pensado para
 -- correr vía el cliente `mariadb`/`mysql` (ej. `mariadb -u user -p db <
@@ -84,28 +96,17 @@ CREATE SEQUENCE IF NOT EXISTS support_ticket_number_seq START WITH 1 INCREMENT B
 -- migración 013 — este schema consolidado ya la trae desde el inicio)
 -- ============================================================
 
--- NOTA DE COLLATION (Fase DB-3A) — DEPENDENCIA FUERTE DETECTADA Y NO
--- APLICADA, reportada en vez de resuelta unilateralmente (regla: "no tocar
--- schema de otros dominios salvo una FK imprescindible; si aparece, frená y
--- explicá"):
---
--- El VPS real usa utf8mb4_unicode_520_ci. Se intentó aplicar esa collation
--- únicamente a users/refresh_tokens/password_reset_tokens (este dominio) y
--- se validó contra MariaDB 10.4 real: la creación del schema completo FALLA
--- (errno 150, "Foreign key constraint is incorrectly formed") porque InnoDB
--- exige que una FK y la columna que referencia tengan la MISMA collation, no
--- solo el mismo tipo. users.id es referenciado por FKs de otras 4 tablas que
--- todavía no se convirtieron en esta fase: support_tickets (assigned_to,
--- created_by), support_ticket_messages (sender_user_id), internal_tasks
--- (assigned_to, created_by) y audit_logs (user_id). Cambiar la collation de
--- `users` sola rompe la creación de esas 5 foreign keys.
---
--- Por eso las 3 tablas de este dominio se quedan en utf8mb4_unicode_ci
--- (la misma del resto del schema, Fase DB-1) en vez de utf8mb4_unicode_520_ci.
--- Alinear todo el schema a utf8mb4_unicode_520_ci requiere hacerlo de una
--- sola vez sobre TODAS las tablas (probablemente como paso previo a la
--- Fase DB-3B, no dominio por dominio) — queda como decisión pendiente del
--- usuario, ver el informe de la Fase DB-3A.
+-- NOTA DE COLLATION — RESUELTA EN LA FASE DB-2.5 (historial: en la Fase
+-- DB-3A se había intentado utf8mb4_unicode_520_ci solo en
+-- users/refresh_tokens/password_reset_tokens, y falló la creación del schema
+-- completo contra MariaDB real con errno 150 "Foreign key constraint is
+-- incorrectly formed" — InnoDB exige que una FK y la columna que referencia
+-- tengan la MISMA collation, no alcanza con el mismo tipo. users.id es
+-- referenciado por FKs de support_tickets, support_ticket_messages,
+-- internal_tasks y audit_logs, que en ese momento seguían en
+-- utf8mb4_unicode_ci. Se quedó documentado como dependencia pendiente en vez
+-- de tocar esos otros dominios). La Fase DB-2.5 normalizó TODAS las tablas a
+-- utf8mb4_unicode_520_ci de una sola vez, eliminando el problema de raíz.
 
 CREATE TABLE IF NOT EXISTS users (
   -- DEFAULT (UUID()) se mantiene a propósito: seeds/006_client_users_seed.js
@@ -131,7 +132,7 @@ CREATE TABLE IF NOT EXISTS users (
   CONSTRAINT users_email_unique UNIQUE (email),
   CONSTRAINT users_role_check   CHECK (role   IN ('super_admin','admin','soporte','finanzas','cliente')),
   CONSTRAINT users_status_check CHECK (status IN ('active','inactive'))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_users_role ON users (role(191));
 
@@ -144,14 +145,14 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   -- ya envía id explícito (randomUUID() de Node) desde antes de esta fase.
   id         CHAR(36)     NOT NULL PRIMARY KEY,
   user_id    CHAR(36)     NOT NULL,
-  token_hash VARCHAR(64)  NOT NULL,                     -- sha256 hex (auth.service.js) = 64 chars exactos
+  token_hash VARCHAR(64)  COLLATE utf8mb4_bin NOT NULL,  -- sha256 hex (auth.service.js) = 64 chars exactos; comparación exacta, no case-insensitive
   expires_at DATETIME     NOT NULL,
   revoked_at DATETIME,
   created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
   CONSTRAINT refresh_tokens_token_hash_unique UNIQUE (token_hash),
   CONSTRAINT refresh_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens (user_id);
 -- Reemplaza el índice parcial de Postgres (WHERE revoked_at IS NULL), sin
@@ -176,7 +177,7 @@ CREATE TABLE IF NOT EXISTS clients (
   updated_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
   CONSTRAINT clients_status_check CHECK (status IN ('active', 'inactive'))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_clients_email   ON clients (email(191));
 CREATE INDEX IF NOT EXISTS idx_clients_status  ON clients (status(191));
@@ -199,7 +200,7 @@ CREATE TABLE IF NOT EXISTS hosting_plans (
   updated_at      DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
   CONSTRAINT hosting_plans_status_check CHECK (status IN ('active', 'inactive'))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_hosting_plans_status ON hosting_plans (status(191));
 
@@ -232,7 +233,7 @@ CREATE TABLE IF NOT EXISTS hosting_services (
   CONSTRAINT hosting_services_domain_unique UNIQUE (domain),
   CONSTRAINT hosting_services_client_id_fkey FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
   CONSTRAINT hosting_services_plan_id_fkey   FOREIGN KEY (plan_id)   REFERENCES hosting_plans(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_hosting_services_client_id ON hosting_services (client_id);
 CREATE INDEX IF NOT EXISTS idx_hosting_services_plan_id   ON hosting_services (plan_id);
@@ -251,7 +252,7 @@ CREATE TABLE IF NOT EXISTS payment_notices (
   id                  CHAR(36)       NOT NULL DEFAULT (UUID()) PRIMARY KEY,
   client_id           CHAR(36)       NOT NULL,
   hosting_service_id  CHAR(36)       NOT NULL,
-  notice_number       VARCHAR(50)    NOT NULL,           -- TEXT+UNIQUE en Postgres -> acotado. Generado en JS vía NEXTVAL, sin cambios de service.
+  notice_number       VARCHAR(50)    COLLATE utf8mb4_bin NOT NULL, -- TEXT+UNIQUE en Postgres -> acotado. Generado en JS vía NEXTVAL, sin cambios de service. Comparación exacta, no case-insensitive.
   period_month        INT            NOT NULL,
   period_year         INT            NOT NULL,
   issue_date          DATE           NOT NULL DEFAULT (CURDATE()),
@@ -268,7 +269,7 @@ CREATE TABLE IF NOT EXISTS payment_notices (
   CONSTRAINT payment_notices_status_check  CHECK (status IN ('draft','pending','sent','paid','overdue','cancelled')),
   CONSTRAINT payment_notices_client_id_fkey  FOREIGN KEY (client_id)          REFERENCES clients(id) ON DELETE CASCADE,
   CONSTRAINT payment_notices_service_id_fkey FOREIGN KEY (hosting_service_id) REFERENCES hosting_services(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_payment_notices_client_id  ON payment_notices (client_id);
 CREATE INDEX IF NOT EXISTS idx_payment_notices_service_id ON payment_notices (hosting_service_id);
@@ -301,7 +302,7 @@ CREATE TABLE IF NOT EXISTS payments (
   CONSTRAINT payments_client_id_fkey  FOREIGN KEY (client_id)          REFERENCES clients(id) ON DELETE CASCADE,
   CONSTRAINT payments_service_id_fkey FOREIGN KEY (hosting_service_id) REFERENCES hosting_services(id) ON DELETE SET NULL,
   CONSTRAINT payments_notice_id_fkey  FOREIGN KEY (payment_notice_id)  REFERENCES payment_notices(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_payments_client_id  ON payments (client_id);
 CREATE INDEX IF NOT EXISTS idx_payments_service_id ON payments (hosting_service_id);
@@ -334,7 +335,7 @@ CREATE TABLE IF NOT EXISTS domains (
   CONSTRAINT domains_domain_unique  UNIQUE (domain),
   CONSTRAINT domains_client_id_fkey  FOREIGN KEY (client_id)          REFERENCES clients(id) ON DELETE CASCADE,
   CONSTRAINT domains_service_id_fkey FOREIGN KEY (hosting_service_id) REFERENCES hosting_services(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_domains_client_id       ON domains (client_id);
 CREATE INDEX IF NOT EXISTS idx_domains_service_id      ON domains (hosting_service_id);
@@ -347,7 +348,7 @@ CREATE INDEX IF NOT EXISTS idx_domains_expiration_date ON domains (expiration_da
 
 CREATE TABLE IF NOT EXISTS support_tickets (
   id                  CHAR(36)     NOT NULL DEFAULT (UUID()) PRIMARY KEY,
-  ticket_number       VARCHAR(50)  NOT NULL,             -- TEXT+UNIQUE en Postgres -> acotado. Autogenerado por trigger, ver abajo.
+  ticket_number       VARCHAR(50)  COLLATE utf8mb4_bin NOT NULL, -- TEXT+UNIQUE en Postgres -> acotado. Autogenerado por trigger, ver abajo. Comparación exacta, no case-insensitive.
   client_id           CHAR(36)     NOT NULL,
   hosting_service_id  CHAR(36),
   subject             TEXT         NOT NULL,
@@ -366,7 +367,7 @@ CREATE TABLE IF NOT EXISTS support_tickets (
   CONSTRAINT support_tickets_service_id_fkey FOREIGN KEY (hosting_service_id) REFERENCES hosting_services(id) ON DELETE SET NULL,
   CONSTRAINT support_tickets_assigned_to_fkey FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL,
   CONSTRAINT support_tickets_created_by_fkey  FOREIGN KEY (created_by)  REFERENCES users(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_support_tickets_client_id   ON support_tickets (client_id);
 CREATE INDEX IF NOT EXISTS idx_support_tickets_status      ON support_tickets (status(191));
@@ -379,6 +380,7 @@ CREATE INDEX IF NOT EXISTS idx_support_tickets_created_at  ON support_tickets (c
 -- formato exacto: TK-{YYYY}-{NNNN con padding a 4 dígitos}. No requiere
 -- ningún cambio en support.service.js — sigue sin pasar ticket_number en el
 -- INSERT, tal como hace hoy contra Postgres.
+DROP TRIGGER IF EXISTS trg_support_tickets_number;
 DELIMITER $$
 CREATE TRIGGER trg_support_tickets_number
 BEFORE INSERT ON support_tickets
@@ -406,7 +408,7 @@ CREATE TABLE IF NOT EXISTS support_ticket_messages (
 
   CONSTRAINT support_ticket_messages_ticket_id_fkey FOREIGN KEY (ticket_id) REFERENCES support_tickets(id) ON DELETE CASCADE,
   CONSTRAINT support_ticket_messages_sender_fkey     FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_support_ticket_messages_ticket_id  ON support_ticket_messages (ticket_id);
 CREATE INDEX IF NOT EXISTS idx_support_ticket_messages_created_at ON support_ticket_messages (created_at DESC);
@@ -438,7 +440,7 @@ CREATE TABLE IF NOT EXISTS internal_tasks (
   CONSTRAINT internal_tasks_service_id_fkey  FOREIGN KEY (hosting_service_id) REFERENCES hosting_services(id) ON DELETE SET NULL,
   CONSTRAINT internal_tasks_domain_id_fkey   FOREIGN KEY (domain_id)          REFERENCES domains(id) ON DELETE SET NULL,
   CONSTRAINT internal_tasks_ticket_id_fkey   FOREIGN KEY (support_ticket_id)  REFERENCES support_tickets(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_internal_tasks_status      ON internal_tasks (status(191));
 CREATE INDEX IF NOT EXISTS idx_internal_tasks_priority    ON internal_tasks (priority(191));
@@ -473,7 +475,7 @@ CREATE TABLE IF NOT EXISTS email_logs (
   CONSTRAINT email_logs_notice_id_fkey FOREIGN KEY (related_notice_id) REFERENCES payment_notices(id) ON DELETE SET NULL,
   CONSTRAINT email_logs_ticket_id_fkey FOREIGN KEY (related_ticket_id) REFERENCES support_tickets(id) ON DELETE SET NULL,
   CONSTRAINT email_logs_domain_id_fkey FOREIGN KEY (related_domain_id) REFERENCES domains(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_email_logs_status     ON email_logs (status(191));
 CREATE INDEX IF NOT EXISTS idx_email_logs_type       ON email_logs (type(191));
@@ -501,7 +503,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at   DATETIME  DEFAULT CURRENT_TIMESTAMP,
 
   CONSTRAINT audit_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id      ON audit_logs (user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity_type  ON audit_logs (entity_type(191));
@@ -524,7 +526,7 @@ CREATE TABLE IF NOT EXISTS scheduler_logs (
   summary       JSON,
   error_message TEXT,
   created_at    DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_scheduler_logs_job_name     ON scheduler_logs (job_name(191));
 CREATE INDEX IF NOT EXISTS idx_scheduler_logs_status       ON scheduler_logs (status(191));
@@ -538,7 +540,7 @@ CREATE INDEX IF NOT EXISTS idx_scheduler_logs_job_created  ON scheduler_logs (jo
 
 CREATE TABLE IF NOT EXISTS automation_settings (
   id          CHAR(36)     NOT NULL DEFAULT (UUID()) PRIMARY KEY,
-  `key`       VARCHAR(100) NOT NULL,                    -- TEXT+UNIQUE en Postgres -> acotado; `key` es palabra reservada, escapada con backticks
+  `key`       VARCHAR(100) COLLATE utf8mb4_bin NOT NULL, -- TEXT+UNIQUE en Postgres -> acotado; `key` es palabra reservada, escapada con backticks. Comparación exacta: son claves de código (ej. 'reminder_7_days'), no texto de negocio.
   value       JSON         NOT NULL DEFAULT '{}',
   description TEXT,
   enabled     BOOLEAN      NOT NULL DEFAULT true,
@@ -547,7 +549,7 @@ CREATE TABLE IF NOT EXISTS automation_settings (
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
   CONSTRAINT automation_settings_key_unique UNIQUE (`key`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_automation_settings_key     ON automation_settings (`key`);
 CREATE INDEX IF NOT EXISTS idx_automation_settings_enabled ON automation_settings (enabled);
@@ -579,7 +581,7 @@ CREATE TABLE IF NOT EXISTS payment_reminder_logs (
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
   CONSTRAINT payment_reminder_logs_notice_id_fkey FOREIGN KEY (notice_id) REFERENCES payment_notices(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_reminder_logs_unique
   ON payment_reminder_logs (notice_id, reminder_type, sent_date);
@@ -604,10 +606,11 @@ CREATE TABLE IF NOT EXISTS company_settings (
   updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
   CONSTRAINT company_settings_currency_check CHECK (currency IN ('ARS', 'USD', 'EUR'))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 -- Reemplaza enforce_single_company_settings() de Postgres (RAISE EXCEPTION
 -- -> SIGNAL SQLSTATE). Mismo comportamiento: no permite una segunda fila.
+DROP TRIGGER IF EXISTS trg_company_settings_single_row;
 DELIMITER $$
 CREATE TRIGGER trg_company_settings_single_row
 BEFORE INSERT ON company_settings
@@ -624,11 +627,11 @@ DELIMITER ;
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS email_templates (
-  id         VARCHAR(100)  NOT NULL PRIMARY KEY,        -- TEXT PRIMARY KEY en Postgres -> acotado. Valores cortos: 'venc', 'pago_ok', etc.
+  id         VARCHAR(100)  COLLATE utf8mb4_bin NOT NULL PRIMARY KEY, -- TEXT PRIMARY KEY en Postgres -> acotado. Valores cortos: 'venc', 'pago_ok', etc. Comparación exacta: son claves de código, no texto de negocio.
   subject    TEXT          NOT NULL,
   body       TEXT          NOT NULL,
   updated_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 -- ============================================================
 -- backups
@@ -646,7 +649,7 @@ CREATE TABLE IF NOT EXISTS backups (
 
   CONSTRAINT backups_type_check   CHECK (type   IN ('database', 'files', 'full')),
   CONSTRAINT backups_status_check CHECK (status IN ('success', 'failed', 'in_progress'))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 -- ============================================================
 -- password_reset_tokens
@@ -659,14 +662,14 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
   -- UUID (Fase 2).
   id         CHAR(36)     NOT NULL PRIMARY KEY,
   user_id    CHAR(36)     NOT NULL,
-  token_hash VARCHAR(64)  NOT NULL,                     -- sha256 hex (auth.service.js) = 64 chars exactos
+  token_hash VARCHAR(64)  COLLATE utf8mb4_bin NOT NULL,  -- sha256 hex (auth.service.js) = 64 chars exactos; comparación exacta, no case-insensitive
   expires_at DATETIME     NOT NULL,
   used_at    DATETIME,
   created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
   CONSTRAINT password_reset_tokens_hash_unique UNIQUE (token_hash),
   CONSTRAINT password_reset_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
 
 CREATE INDEX IF NOT EXISTS idx_prt_token_hash ON password_reset_tokens (token_hash);
 CREATE INDEX IF NOT EXISTS idx_prt_user_id    ON password_reset_tokens (user_id);
