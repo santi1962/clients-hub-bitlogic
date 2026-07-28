@@ -20,7 +20,7 @@ export async function authRequired(req, res, next) {
     const payload = verifyAccessToken(auth.slice(7));
 
     const { rows } = await pool.query(
-      `SELECT id, name, role, status, client_id FROM users WHERE id = $1`,
+      `SELECT id, name, role, status, client_id FROM users WHERE id = ?`,
       [payload.sub],
     );
     const dbUser = rows[0];

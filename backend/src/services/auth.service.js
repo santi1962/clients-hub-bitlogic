@@ -6,6 +6,14 @@ import config from "../config/index.js";
 
 function formatUser(row) {
   const defaultNotifications = { emailPayments: true, emailTickets: true, whatsapp: false, weeklyReport: true };
+  // `pg` devuelve la columna JSON de Postgres ya parseada como objeto; el
+  // tipo JSON de MariaDB es un alias de LONGTEXT (no tiene tipo binario
+  // propio) y el driver devuelve el string crudo — se normaliza acá, en el
+  // único lugar donde se expone `notifications` en una respuesta.
+  let notifications = row.notifications ?? defaultNotifications;
+  if (typeof notifications === "string") {
+    notifications = JSON.parse(notifications);
+  }
   return {
     id: row.id,
     name: row.name,
@@ -14,7 +22,7 @@ function formatUser(row) {
     phone: row.phone ?? null,
     clientId: row.client_id ?? null,
     lastLoginAt: row.last_login_at ?? null,
-    notifications: row.notifications ?? defaultNotifications,
+    notifications,
   };
 }
 
@@ -23,7 +31,7 @@ function hashToken(token) {
 }
 
 async function findActiveUserByEmail(email) {
-  const { rows } = await pool.query(`SELECT * FROM users WHERE email = $1 AND status = 'active'`, [
+  const { rows } = await pool.query(`SELECT * FROM users WHERE email = ? AND status = 'active'`, [
     email.toLowerCase().trim(),
   ]);
   return rows[0] ?? null;
@@ -40,9 +48,11 @@ async function issueRefreshToken(userId, remember) {
     expiresAt.setDate(expiresAt.getDate() + 1);
   }
 
+  // id generado en la app (UUID v4, crypto.randomUUID) — política definitiva
+  // de la Fase DB-3A, ya era el patrón usado acá desde antes de esta fase.
   await pool.query(
     `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at)
-     VALUES ($1, $2, $3, $4)`,
+     VALUES (?, ?, ?, ?)`,
     [randomUUID(), userId, tokenHash, expiresAt],
   );
 
@@ -64,7 +74,7 @@ export async function login(email, password, remember = false) {
   const valid = await verifyPassword(password, user.password_hash);
   if (!valid) throw invalid();
 
-  await pool.query(`UPDATE users SET last_login_at = now() WHERE id = $1`, [user.id]);
+  await pool.query(`UPDATE users SET last_login_at = now() WHERE id = ?`, [user.id]);
 
   const accessToken = signAccessToken({ sub: user.id, role: user.role, clientId: user.client_id ?? null });
   const { rawToken: refreshToken, expiresAt: refreshExpiry } = await issueRefreshToken(
@@ -80,7 +90,7 @@ export async function logout(refreshToken) {
   const tokenHash = hashToken(refreshToken);
   await pool.query(
     `UPDATE refresh_tokens SET revoked_at = now()
-     WHERE token_hash = $1 AND revoked_at IS NULL`,
+     WHERE token_hash = ? AND revoked_at IS NULL`,
     [tokenHash],
   );
 }
@@ -97,7 +107,7 @@ export async function refreshAccessToken(refreshToken) {
     `SELECT rt.user_id, u.role, u.status, u.client_id
      FROM refresh_tokens rt
      JOIN users u ON u.id = rt.user_id
-     WHERE rt.token_hash = $1
+     WHERE rt.token_hash = ?
        AND rt.revoked_at IS NULL
        AND rt.expires_at > now()`,
     [tokenHash],
@@ -124,7 +134,7 @@ export async function getMe(userId) {
   const { rows } = await pool.query(
     `SELECT id, name, email, role, phone, client_id, last_login_at, notifications
      FROM users
-     WHERE id = $1 AND status = 'active'`,
+     WHERE id = ? AND status = 'active'`,
     [userId],
   );
 
@@ -140,7 +150,7 @@ export async function getMe(userId) {
 
 export async function forgotPassword(email) {
   const { rows } = await pool.query(
-    `SELECT id FROM users WHERE email = $1 AND status = 'active'`,
+    `SELECT id FROM users WHERE email = ? AND status = 'active'`,
     [email.toLowerCase().trim()],
   );
   if (!rows[0]) return; // anti-enumeration: silencioso si no existe
@@ -149,10 +159,13 @@ export async function forgotPassword(email) {
   const tokenHash = createHash("sha256").update(rawToken).digest("hex");
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
 
+  // id generado en la app (antes dependía del DEFAULT (UUID()) de la
+  // columna — política definitiva de UUID de la Fase DB-3A: generar en Node
+  // y enviarlo explícito, igual que ya se hacía con refresh_tokens).
   await pool.query(
-    `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
-     VALUES ($1, $2, $3)`,
-    [rows[0].id, tokenHash, expiresAt],
+    `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
+     VALUES (?, ?, ?, ?)`,
+    [randomUUID(), rows[0].id, tokenHash, expiresAt],
   );
 
   return { rawToken, userId: rows[0].id };
@@ -163,7 +176,7 @@ export async function resetPassword(rawToken, newPassword) {
   const { rows } = await pool.query(
     `SELECT prt.id, prt.user_id
      FROM password_reset_tokens prt
-     WHERE prt.token_hash = $1
+     WHERE prt.token_hash = ?
        AND prt.expires_at > now()
        AND prt.used_at IS NULL`,
     [tokenHash],
@@ -182,26 +195,28 @@ export async function resetPassword(rawToken, newPassword) {
   }
 
   const newHash = await hashPassword(newPassword);
-  await pool.query(`UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1`, [record.user_id, newHash]);
-  await pool.query(`UPDATE password_reset_tokens SET used_at = now() WHERE id = $1`, [record.id]);
+  // Nota: el orden de los placeholders en el texto ($password_hash antes que
+  // $id en la versión Postgres original) no importa con `?` posicional —
+  // los params van en el mismo orden en que aparecen los `?` en la query.
+  await pool.query(`UPDATE users SET password_hash = ?, updated_at = now() WHERE id = ?`, [newHash, record.user_id]);
+  await pool.query(`UPDATE password_reset_tokens SET used_at = now() WHERE id = ?`, [record.id]);
   // Revocar todos los refresh tokens del usuario (cerrar sesiones activas)
-  await pool.query(`UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, [record.user_id]);
+  await pool.query(`UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = ? AND revoked_at IS NULL`, [record.user_id]);
 }
 
 export async function updateProfile(userId, { name, phone, notifications }) {
   const updates = [];
   const vals = [];
-  let i = 1;
 
-  if (name !== undefined && name !== null) { updates.push(`name = $${i++}`); vals.push(name.trim()); }
-  if (phone !== undefined) { updates.push(`phone = $${i++}`); vals.push(phone || null); }
-  if (notifications !== undefined) { updates.push(`notifications = $${i++}`); vals.push(JSON.stringify(notifications)); }
+  if (name !== undefined && name !== null) { updates.push(`name = ?`); vals.push(name.trim()); }
+  if (phone !== undefined) { updates.push(`phone = ?`); vals.push(phone || null); }
+  if (notifications !== undefined) { updates.push(`notifications = ?`); vals.push(JSON.stringify(notifications)); }
 
   if (updates.length === 0) return getMe(userId);
 
   vals.push(userId);
   await pool.query(
-    `UPDATE users SET ${updates.join(", ")}, updated_at = now() WHERE id = $${i}`,
+    `UPDATE users SET ${updates.join(", ")}, updated_at = now() WHERE id = ?`,
     vals,
   );
   return getMe(userId);
@@ -209,7 +224,7 @@ export async function updateProfile(userId, { name, phone, notifications }) {
 
 export async function changePassword(userId, oldPassword, newPassword) {
   const { rows } = await pool.query(
-    `SELECT password_hash FROM users WHERE id = $1 AND status = 'active'`,
+    `SELECT password_hash FROM users WHERE id = ? AND status = 'active'`,
     [userId],
   );
   const user = rows[0];
@@ -233,5 +248,5 @@ export async function changePassword(userId, oldPassword, newPassword) {
   }
 
   const newHash = await hashPassword(newPassword);
-  await pool.query(`UPDATE users SET password_hash = $2 WHERE id = $1`, [userId, newHash]);
+  await pool.query(`UPDATE users SET password_hash = ? WHERE id = ?`, [newHash, userId]);
 }

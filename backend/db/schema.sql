@@ -84,7 +84,37 @@ CREATE SEQUENCE IF NOT EXISTS support_ticket_number_seq START WITH 1 INCREMENT B
 -- migración 013 — este schema consolidado ya la trae desde el inicio)
 -- ============================================================
 
+-- NOTA DE COLLATION (Fase DB-3A) — DEPENDENCIA FUERTE DETECTADA Y NO
+-- APLICADA, reportada en vez de resuelta unilateralmente (regla: "no tocar
+-- schema de otros dominios salvo una FK imprescindible; si aparece, frená y
+-- explicá"):
+--
+-- El VPS real usa utf8mb4_unicode_520_ci. Se intentó aplicar esa collation
+-- únicamente a users/refresh_tokens/password_reset_tokens (este dominio) y
+-- se validó contra MariaDB 10.4 real: la creación del schema completo FALLA
+-- (errno 150, "Foreign key constraint is incorrectly formed") porque InnoDB
+-- exige que una FK y la columna que referencia tengan la MISMA collation, no
+-- solo el mismo tipo. users.id es referenciado por FKs de otras 4 tablas que
+-- todavía no se convirtieron en esta fase: support_tickets (assigned_to,
+-- created_by), support_ticket_messages (sender_user_id), internal_tasks
+-- (assigned_to, created_by) y audit_logs (user_id). Cambiar la collation de
+-- `users` sola rompe la creación de esas 5 foreign keys.
+--
+-- Por eso las 3 tablas de este dominio se quedan en utf8mb4_unicode_ci
+-- (la misma del resto del schema, Fase DB-1) en vez de utf8mb4_unicode_520_ci.
+-- Alinear todo el schema a utf8mb4_unicode_520_ci requiere hacerlo de una
+-- sola vez sobre TODAS las tablas (probablemente como paso previo a la
+-- Fase DB-3B, no dominio por dominio) — queda como decisión pendiente del
+-- usuario, ver el informe de la Fase DB-3A.
+
 CREATE TABLE IF NOT EXISTS users (
+  -- DEFAULT (UUID()) se mantiene a propósito: seeds/006_client_users_seed.js
+  -- (seed DEMO, fuera de alcance de esta fase) inserta usuarios sin enviar
+  -- id explícito y depende de este default. La política de la Fase DB-3A
+  -- (generar UUID v4 en Node) ya se aplica en los flujos de producción
+  -- (users.service.js, seeds/001_admin_seed.js) — no se retira el default
+  -- hasta que ese seed demo se actualice o se elimine, documentado acá tal
+  -- como pide la Fase 2.
   id            CHAR(36)      NOT NULL DEFAULT (UUID()) PRIMARY KEY,
   name          TEXT          NOT NULL,
   email         VARCHAR(255)  NOT NULL,                 -- TEXT+UNIQUE en Postgres -> acotado para indexar
@@ -110,7 +140,9 @@ CREATE INDEX IF NOT EXISTS idx_users_role ON users (role(191));
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS refresh_tokens (
-  id         CHAR(36)     NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): el único INSERT (auth.service.js issueRefreshToken)
+  -- ya envía id explícito (randomUUID() de Node) desde antes de esta fase.
+  id         CHAR(36)     NOT NULL PRIMARY KEY,
   user_id    CHAR(36)     NOT NULL,
   token_hash VARCHAR(64)  NOT NULL,                     -- sha256 hex (auth.service.js) = 64 chars exactos
   expires_at DATETIME     NOT NULL,
@@ -621,7 +653,11 @@ CREATE TABLE IF NOT EXISTS backups (
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
-  id         CHAR(36)     NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): el único INSERT (auth.service.js forgotPassword)
+  -- ahora envía id explícito (randomUUID() de Node) — antes de la Fase
+  -- DB-3A dependía del default, se corrigió como parte de la política de
+  -- UUID (Fase 2).
+  id         CHAR(36)     NOT NULL PRIMARY KEY,
   user_id    CHAR(36)     NOT NULL,
   token_hash VARCHAR(64)  NOT NULL,                     -- sha256 hex (auth.service.js) = 64 chars exactos
   expires_at DATETIME     NOT NULL,
