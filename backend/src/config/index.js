@@ -28,6 +28,22 @@ function parseBool(value, defaultValue) {
   return value === "true";
 }
 
+/**
+ * Detecta el motor de base de datos a partir del esquema de DATABASE_URL.
+ * "postgres" es el default histórico (postgresql://, postgres://) — un
+ * esquema no reconocido también cae ahí para no romper configuraciones
+ * existentes. mysql:// (o mysql2://) activa el driver MariaDB en db/pool.js.
+ * Fase DB-1 de la migración a MariaDB: esto solo prepara la detección, las
+ * queries del backend siguen en sintaxis PostgreSQL hasta que se conviertan.
+ */
+function detectDbDriver(connectionString) {
+  if (!connectionString) return "postgres";
+  if (connectionString.startsWith("mysql://") || connectionString.startsWith("mysql2://")) {
+    return "mysql";
+  }
+  return "postgres";
+}
+
 // ── Validación de variables críticas ────────────────────────────
 // Falla de forma explícita en producción si faltan vars o siguen con valores dev.
 // No exige nada de integraciones opcionales (MP/Telegram/WhatsApp) salvo que
@@ -66,6 +82,7 @@ const config = {
 
   db: {
     connectionString: process.env.DATABASE_URL,
+    driver: detectDbDriver(process.env.DATABASE_URL),
   },
 
   jwt: {
