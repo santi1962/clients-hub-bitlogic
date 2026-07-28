@@ -1,6 +1,6 @@
 # Bitlogic Client Hub — Estado de producción
 
-**Última actualización:** 2026-07-27
+**Última actualización:** 2026-07-28
 **Fuente de verdad vigente.** Todo lo que esté en `docs/archive/` es documentación histórica de sesiones de desarrollo anteriores y **no debe usarse como referencia** — puede contradecir este documento y el código real. Ante cualquier duda, este archivo y el código ganan siempre.
 
 ---
@@ -12,7 +12,7 @@ Sistema interno de Bitlogic (empresa de hosting) para gestionar clientes, servic
 ## Arquitectura real
 
 - **Frontend:** React + TanStack Start (SSR real, no SPA estática) + Vite. Build genera `dist/client/` y `dist/server/`.
-- **Backend:** Express + Node ESM, PostgreSQL con SQL directo (sin ORM).
+- **Backend:** Express + Node ESM, PostgreSQL con SQL directo (sin ORM). **Migración a MariaDB en curso** (rama `migration/mariadb`, no mergeada a `master`): el motor productivo definitivo pasa a ser MariaDB, pero hoy PostgreSQL sigue siendo el único motor activo en `master`. Solo el dominio auth/users tiene sus queries convertidas para funcionar contra ambos motores — ver `docs/MARIADB_MIGRATION.md`. **No cambiar `DATABASE_URL` a `mysql://` en ningún ambiente real**, rompe el resto de los módulos.
 - **Tiempo real:** Socket.IO para el chat de tickets — sin adapter compartido, por lo que el backend **debe** correr en 1 sola instancia (fork), nunca en cluster/múltiples workers.
 - **Auth:** JWT access token (15 min, en memoria del navegador) + refresh token en cookie httpOnly (30 días / 1 día).
 - **Proceso:** PM2 con `ecosystem.config.js` (raíz del repo) — 2 apps (`bitlogic-backend`, `bitlogic-frontend`), ambas fork/1 instancia.
@@ -83,6 +83,7 @@ Ninguna actualización cumplía simultáneamente las condiciones para aplicarse 
 ## Dónde está la documentación
 
 - Este archivo (`docs/PRODUCTION_STATUS.md`): estado funcional y de integraciones vigente.
+- `docs/MARIADB_MIGRATION.md`: estado de la migración a MariaDB (motor dual temporal, qué está convertido y qué no, política de UUID/timezone/collation, cómo probar contra ambos motores).
 - `docs/SCHEDULER.md`: horarios, timezone, cómo deshabilitar el scheduler y revisar logs de automatizaciones.
 - `docs/TESTING.md`: cómo correr los tests del backend, qué cubren y qué no.
 - `DEPLOYMENT_GUIDE.md` (raíz): guía paso a paso de deploy, ya corregida y validada.
