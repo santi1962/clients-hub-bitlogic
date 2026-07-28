@@ -42,14 +42,29 @@ Todos los módulos del panel admin y del portal cliente (Clientes, Servicios, Pl
 2. PTR de la IP del VPS sin configurar por el proveedor (afecta entrega de email).
 3. No usar `npm run seed` contra la base de producción — carga datos de demo ficticios. La base real ya tiene datos de negocio cargados localmente; para producción corresponde migrar esa base (`pg_dump`/`pg_restore`), no sembrar desde cero.
 4. El scheduler usa un lock en memoria (`runningJobs`), correcto para 1 sola instancia PM2 (fork, el modo actual). Si en algún momento se escala a más de una instancia, ese lock deja de garantizar exclusión — hace falta un lock en PostgreSQL (`pg_advisory_lock`) antes de escalar.
-5. Ninguna ruta de escritura de Configuración/Planes tiene chequeo de rol más allá de "estar autenticado" (`authRequired`) — cualquier usuario logueado, incluido un cliente del portal, podría hoy crear/editar planes o cambiar la configuración de la empresa. No es nuevo de esta fase (ya pasaba antes), solo quedó documentado al unificar el middleware de autenticación. Requiere una decisión de negocio sobre qué roles deberían poder tocar cada cosa antes de restringirlo.
-6. `npm audit` reporta 7 vulnerabilidades en el backend y 3 en el frontend — todas evaluadas y ninguna aplicada todavía (ver tabla abajo). Las de mayor severidad práctica (`bcrypt`, `nodemailer`) requieren un bump de versión mayor con pruebas dedicadas.
+5. `npm audit` reporta 7 vulnerabilidades en el backend y 3 en el frontend — todas evaluadas y ninguna aplicada todavía (ver tabla abajo). Las de mayor severidad práctica (`bcrypt`, `nodemailer`) requieren un bump de versión mayor con pruebas dedicadas.
 
 ### Hallazgos de seguridad resueltos en esta fase
 
 - **Firma del webhook de MercadoPago**: ahora se verifica `x-signature`/`x-request-id` contra la documentación oficial de MercadoPago, usando el validador que trae el propio SDK (`mercadopago`, `WebhookSignatureValidator`). Ver `backend/src/routes/mercadopago.routes.js` y `docs/TESTING.md`.
 - **Autenticación paralela**: `backend/src/middlewares/auth.js` (usado por Configuración y Planes, sin reconsultar la DB) se eliminó — todas las rutas usan ahora `authRequired.js`. De paso se corrigió que el audit log de cambios en Configuración/Planes grababa `user_id: null, user_name: "System"` siempre, por la misma causa.
 - **Warning de PostgreSQL** ("Calling client.query() when the client is already executing a query"): causado por un `SET client_encoding` redundante disparado sin esperar en el listener `connect` del pool — la base ya negocia UTF8 por default. Se quitó esa query.
+- **Autorización de Configuración y Planes**: antes, cualquier usuario autenticado (incluido un cliente del portal, vía un token forjado o robado) podía leer/escribir configuración de empresa o crear/editar/eliminar planes — solo se exigía estar logueado, sin chequeo de rol. Ahora cada endpoint exige el rol real que ya asume el frontend (`src/lib/auth.tsx`, `PERMISSIONS`) — ver la matriz en "Roles y permisos" abajo. El portal del cliente y el resto de los módulos (Avisos, Plantillas, servicios) no se vieron afectados: se verificó qué páginas consumen cada endpoint antes de restringirlo.
+
+## Roles y permisos
+
+Roles reales (constraint de `users.role`): `super_admin`, `admin`, `soporte`, `finanzas`, `cliente`. No existe un rol "staff" en la base — es una agrupación conceptual del backend (`requireStaff` en `backend/src/middlewares/requireRole.js`) que junta `admin`+`soporte`+`finanzas` (+`super_admin`).
+
+| Módulo | Acción | Roles permitidos |
+|---|---|---|
+| Configuración (empresa, facturación, hosting/Hestia, pagos, email, readiness) | Lectura | `super_admin` |
+| Configuración → datos de empresa (`GET /api/settings/company`) | Lectura | `super_admin`, `admin`, `finanzas` (también la usa la página Avisos) |
+| Configuración (todo lo anterior) | Escritura | `super_admin` |
+| Plantillas de email (`/api/settings/templates`) | Lectura y escritura | `super_admin`, `admin` |
+| Planes — listado (`GET /api/hosting/plans`) | Lectura | Cualquiera (sin restricción de rol — lo usa el portal del cliente y los formularios de servicios) |
+| Planes — crear/editar/eliminar | Escritura | `super_admin` |
+
+Esta matriz refleja exactamente `PERMISSIONS` en `src/lib/auth.tsx` (frontend): `configuracion` y `planes` solo están en la lista de `super_admin`; `plantillas` está en `super_admin` y `admin`; `avisos` (que consume el logo de empresa) está en `super_admin`, `admin` y `finanzas`. La política backend no inventa roles nuevos ni reglas nuevas — cierra la brecha entre lo que el frontend ya asumía y lo que el backend efectivamente exigía.
 
 ### `npm audit` — hallazgos evaluados (nada aplicado)
 
