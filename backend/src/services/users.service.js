@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import pool from "../db/pool.js";
 import bcrypt from "bcrypt";
 
@@ -22,45 +23,80 @@ export const usersService = {
 
   async createPortalUser({ clientId, name, email, password }) {
     const passwordHash = await bcrypt.hash(password, 12);
+    // id generado en la app (UUID v4) — MariaDB no soporta UPDATE...RETURNING
+    // y para mantener una única estrategia consistente en todo el dominio
+    // (ver resetPassword/deletePortalUser abajo), INSERT tampoco usa
+    // RETURNING acá: como el id ya se conoce de antemano, alcanza con un
+    // SELECT posterior para traer created_at (generado por la DB) tal cual
+    // hoy lo devuelve el cliente.
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO users (id, name, email, password_hash, role, status, client_id)
+       VALUES (?, ?, ?, ?, 'cliente', 'active', ?)`,
+      [id, name || email, email, passwordHash, clientId],
+    );
     const { rows } = await pool.query(
-      `INSERT INTO users (name, email, password_hash, role, status, client_id)
-       VALUES ($1, $2, $3, 'cliente', 'active', $4)
-       RETURNING id, name, email, status, created_at`,
-      [name || email, email, passwordHash, clientId],
+      `SELECT id, name, email, status, created_at FROM users WHERE id = ?`,
+      [id],
     );
     return rows[0];
   },
 
   async resetPassword(userId, newPassword) {
     const passwordHash = await bcrypt.hash(newPassword, 12);
-    const { rows } = await pool.query(
-      `UPDATE users SET password_hash = $1, updated_at = now()
-       WHERE id = $2 AND role = 'cliente'
-       RETURNING id, name, email`,
-      [passwordHash, userId],
-    );
-    if (!rows[0]) {
-      const err = new Error("User not found");
-      err.status = 404;
+
+    // UPDATE...RETURNING no existe en MariaDB: se ejecuta el UPDATE y, en la
+    // misma conexión/transacción, un SELECT con la misma condición exacta
+    // del WHERE — más la revocación de refresh tokens, que ya formaba parte
+    // del mismo flujo lógico (cambiar la contraseña cierra las sesiones
+    // activas) y ahora queda atómica con él.
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const { rowCount } = await client.query(
+        `UPDATE users SET password_hash = ?, updated_at = now()
+         WHERE id = ? AND role = 'cliente'`,
+        [passwordHash, userId],
+      );
+      if (rowCount === 0) {
+        const err = new Error("User not found");
+        err.status = 404;
+        throw err;
+      }
+
+      await client.query(
+        `UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = ? AND revoked_at IS NULL`,
+        [userId],
+      );
+
+      const { rows } = await client.query(
+        `SELECT id, name, email FROM users WHERE id = ? AND role = 'cliente'`,
+        [userId],
+      );
+
+      await client.query("COMMIT");
+      return rows[0];
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
       throw err;
+    } finally {
+      client.release();
     }
-    await pool.query(
-      `UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
-      [userId],
-    );
-    return rows[0];
   },
 
   async deletePortalUser(userId) {
-    const { rows } = await pool.query(
-      `DELETE FROM users WHERE id = $1 AND role = 'cliente' RETURNING id`,
+    // DELETE...RETURNING id es trivial de reemplazar sin round-trip extra:
+    // el id devuelto siempre es el mismo que se pasó por parámetro.
+    const { rowCount } = await pool.query(
+      `DELETE FROM users WHERE id = ? AND role = 'cliente'`,
       [userId],
     );
-    if (!rows[0]) {
+    if (rowCount === 0) {
       const err = new Error("User not found");
       err.status = 404;
       throw err;
     }
-    return rows[0];
+    return { id: userId };
   },
 };
