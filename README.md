@@ -142,7 +142,20 @@ npm start          # servidor en http://localhost:3001
 npm run migrate    # ejecutar migraciones
 npm run seed       # ejecutar seeds de DEMO (no usar en producción)
 npm run clear-demo-data  # borrar datos de demo
+npm test           # suite de tests (node:test, sin tráfico ni credenciales reales)
 ```
+
+---
+
+## 🧪 Tests
+
+```bash
+npm run test:backend   # desde la raíz
+# o
+cd backend && npm test
+```
+
+Usa el test runner nativo de Node (`node --test`) — sin Jest/Vitest ni otras dependencias nuevas. Ver [`docs/TESTING.md`](docs/TESTING.md) para qué cubre, qué mockea y qué no cubre todavía.
 
 ---
 
@@ -150,5 +163,6 @@ npm run clear-demo-data  # borrar datos de demo
 
 - Estado funcional e integraciones: [`docs/PRODUCTION_STATUS.md`](docs/PRODUCTION_STATUS.md)
 - Automatizaciones/scheduler: [`docs/SCHEDULER.md`](docs/SCHEDULER.md)
+- Tests del backend: [`docs/TESTING.md`](docs/TESTING.md)
 - Deploy: [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md)
 - Documentación histórica (no vigente): `docs/archive/`

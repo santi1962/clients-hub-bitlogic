@@ -13,11 +13,12 @@ const pool = new Pool({
   application_name: "bitlogic-backend",
 });
 
-pool.on("connect", (client) => {
-  client.query("SET client_encoding = 'UTF8'").catch((err) => {
-    log.error("Error configurando encoding UTF-8 en conexión nueva", { err });
-  });
-});
+// No hay listener "connect" que fuerce SET client_encoding: esta base ya
+// negocia UTF8 por default (verificado con `SHOW client_encoding`), así que
+// esa query era redundante. Además era la causa confirmada del warning de
+// pg "Calling client.query() when the client is already executing a query"
+// — el pool entregaba el client al caller original mientras esa query sin
+// esperar todavía estaba en vuelo sobre el mismo client.
 
 pool.on("error", (err) => {
   // Errores de conexiones ociosas en el pool (ej. la DB las cierra). No es

@@ -107,6 +107,17 @@ const config = {
   mercadopago: {
     accessToken: process.env.MP_ACCESS_TOKEN ?? "",
     webhookSecret: process.env.MP_WEBHOOK_SECRET ?? "",
+    // Ventana de tolerancia contra replay del timestamp del header x-signature.
+    // 300s (5 min) es un margen razonable para drift de reloj + latencia de red,
+    // sin dejar la ventana de reintento abierta indefinidamente.
+    webhookToleranceSeconds: parseInt(process.env.MP_WEBHOOK_TOLERANCE_SECONDS ?? "300", 10),
+    // Bypass EXPLÍCITO de la verificación de firma cuando no hay
+    // MP_WEBHOOK_SECRET configurado — solo para probar el flujo de checkout/
+    // webhook en desarrollo sin tener that secret todavía. Nunca implícito:
+    // sin este flag en true, la ausencia de secret rechaza el webhook (no lo
+    // acepta sin firmar). Se fuerza a false en producción sin importar el
+    // valor de la env var: no existe forma de habilitar el bypass en prod.
+    allowUnsignedWebhook: isProduction ? false : parseBool(process.env.MP_WEBHOOK_ALLOW_UNSIGNED, false),
   },
 
   hestia: {
