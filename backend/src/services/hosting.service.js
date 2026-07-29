@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import pool from "../db/pool.js";
 
 // ─────────────────────────────────────────────────────────────
@@ -61,7 +62,7 @@ const SERVICE_SELECT = `
 export async function listPlans({ status } = {}) {
   const { rows } = await pool.query(
     `SELECT * FROM hosting_plans
-     ${status ? `WHERE status = $1` : `WHERE status = 'active'`}
+     ${status ? `WHERE status = ?` : `WHERE status = 'active'`}
      ORDER BY monthly_price ASC`,
     status ? [status] : [],
   );
@@ -69,7 +70,7 @@ export async function listPlans({ status } = {}) {
 }
 
 export async function getPlanById(id) {
-  const { rows } = await pool.query(`SELECT * FROM hosting_plans WHERE id = $1`, [id]);
+  const { rows } = await pool.query(`SELECT * FROM hosting_plans WHERE id = ?`, [id]);
   if (!rows[0]) {
     const e = new Error("Plan no encontrado");
     e.status = 404;
@@ -85,10 +86,14 @@ export async function createPlan(data) {
     e.status = 400;
     throw e;
   }
-  const { rows } = await pool.query(
-    `INSERT INTO hosting_plans (name, description, storage_gb, websites_limit, emails_limit, monthly_price)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+  // id generado en la app — misma política que plans.service.js (dominio
+  // hermano, mismo default (UUID()) retirado del schema en esta fase).
+  const id = randomUUID();
+  await pool.query(
+    `INSERT INTO hosting_plans (id, name, description, storage_gb, websites_limit, emails_limit, monthly_price)
+     VALUES (?,?,?,?,?,?,?)`,
     [
+      id,
       name,
       description ?? null,
       storageGb,
@@ -97,23 +102,26 @@ export async function createPlan(data) {
       monthlyPrice,
     ],
   );
+  const { rows } = await pool.query(`SELECT * FROM hosting_plans WHERE id = ?`, [id]);
   return formatPlan(rows[0]);
 }
 
 export async function updatePlan(id, data) {
   const { name, description, storageGb, websitesLimit, emailsLimit, monthlyPrice, status } = data;
-  const { rows } = await pool.query(
+  // UPDATE...RETURNING -> UPDATE + SELECT (ver nota en plans.service.js: el
+  // 404 se decide por el SELECT, no por rowCount, porque un COALESCE que no
+  // cambia ningún valor da rowCount=0 en MariaDB aunque la fila exista).
+  await pool.query(
     `UPDATE hosting_plans SET
-       name            = COALESCE($2, name),
-       description     = COALESCE($3, description),
-       storage_gb      = COALESCE($4, storage_gb),
-       websites_limit  = COALESCE($5, websites_limit),
-       emails_limit    = COALESCE($6, emails_limit),
-       monthly_price   = COALESCE($7, monthly_price),
-       status          = COALESCE($8, status)
-     WHERE id = $1 RETURNING *`,
+       name            = COALESCE(?, name),
+       description     = COALESCE(?, description),
+       storage_gb      = COALESCE(?, storage_gb),
+       websites_limit  = COALESCE(?, websites_limit),
+       emails_limit    = COALESCE(?, emails_limit),
+       monthly_price   = COALESCE(?, monthly_price),
+       status          = COALESCE(?, status)
+     WHERE id = ?`,
     [
-      id,
       name ?? null,
       description ?? null,
       storageGb ?? null,
@@ -121,8 +129,10 @@ export async function updatePlan(id, data) {
       emailsLimit ?? null,
       monthlyPrice ?? null,
       status ?? null,
+      id,
     ],
   );
+  const { rows } = await pool.query(`SELECT * FROM hosting_plans WHERE id = ?`, [id]);
   if (!rows[0]) {
     const e = new Error("Plan no encontrado");
     e.status = 404;
@@ -144,24 +154,25 @@ export async function listServices({
 } = {}) {
   const conditions = [];
   const params = [];
-  let idx = 1;
 
   if (clientId) {
-    conditions.push(`hs.client_id = $${idx++}`);
+    conditions.push(`hs.client_id = ?`);
     params.push(clientId);
   }
   if (planId) {
-    conditions.push(`hs.plan_id   = $${idx++}`);
+    conditions.push(`hs.plan_id   = ?`);
     params.push(planId);
   }
   if (status) {
-    conditions.push(`hs.status    = $${idx++}`);
+    conditions.push(`hs.status    = ?`);
     params.push(status);
   }
   if (search) {
-    conditions.push(`(hs.domain ILIKE $${idx} OR c.company ILIKE $${idx} OR c.name ILIKE $${idx})`);
-    params.push(`%${search}%`);
-    idx++;
+    // LOWER()/LIKE en vez de ILIKE (no existe en MariaDB) — misma técnica
+    // que clients.service.js (DB-3B): funciona igual en ambos motores sin
+    // depender del collation de la columna.
+    conditions.push(`(LOWER(hs.domain) LIKE LOWER(?) OR LOWER(c.company) LIKE LOWER(?) OR LOWER(c.name) LIKE LOWER(?))`);
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -171,11 +182,14 @@ export async function listServices({
     pool.query(
       `${SERVICE_SELECT} ${where}
        ORDER BY hs.next_due_date ASC
-       LIMIT $${idx} OFFSET $${idx + 1}`,
+       LIMIT ? OFFSET ?`,
       [...params, limit, offset],
     ),
+    // AS count explícito: Postgres nombra "count" a SELECT COUNT(*) por
+    // default, MariaDB la nombra "COUNT(*)" literal (mismo hallazgo que
+    // clients.service.js en DB-3B).
     pool.query(
-      `SELECT COUNT(*) FROM hosting_services hs
+      `SELECT COUNT(*) AS count FROM hosting_services hs
        LEFT JOIN clients c ON c.id = hs.client_id
        ${where}`,
       params,
@@ -189,7 +203,7 @@ export async function listServices({
 }
 
 export async function getServiceById(id) {
-  const { rows } = await pool.query(`${SERVICE_SELECT} WHERE hs.id = $1`, [id]);
+  const { rows } = await pool.query(`${SERVICE_SELECT} WHERE hs.id = ?`, [id]);
   if (!rows[0]) {
     const e = new Error("Servicio no encontrado");
     e.status = 404;
@@ -221,7 +235,7 @@ export async function createService(data) {
 
   // Tomar storage y emails del plan para que los totales siempre reflejen el plan
   const { rows: planRows } = await pool.query(
-    `SELECT storage_gb, emails_limit FROM hosting_plans WHERE id = $1`,
+    `SELECT storage_gb, emails_limit FROM hosting_plans WHERE id = ?`,
     [planId],
   );
   if (!planRows[0]) {
@@ -231,13 +245,16 @@ export async function createService(data) {
   }
   const { storage_gb, emails_limit } = planRows[0];
 
-  const { rows } = await pool.query(
+  // id generado en la app — misma política que clients/plans: el
+  // DEFAULT (UUID()) de hosting_services.id se retira en esta fase.
+  const id = randomUUID();
+  await pool.query(
     `INSERT INTO hosting_services
-       (client_id, plan_id, domain, monthly_price, setup_date, next_due_date,
+       (id, client_id, plan_id, domain, monthly_price, setup_date, next_due_date,
         storage_total_gb, emails_total, hestia_username, hestia_url, internal_notes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-     RETURNING *`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
+      id,
       clientId,
       planId,
       domain,
@@ -252,7 +269,7 @@ export async function createService(data) {
     ],
   );
 
-  return getServiceById(rows[0].id);
+  return getServiceById(id);
 }
 
 export async function updateService(id, data) {
@@ -272,24 +289,31 @@ export async function updateService(id, data) {
     internalNotes,
   } = data;
 
-  const { rows } = await pool.query(
+  // UPDATE...RETURNING -> UPDATE + SELECT posterior. A diferencia de
+  // suspendService/reactivateService (abajo), acá el WHERE no excluye
+  // ningún estado previo — un PATCH que reenvía exactamente los mismos
+  // valores que ya tiene el servicio (ej. repetir el mismo status) no
+  // cambiaría ningún valor, y en MariaDB eso da rowCount=0 aunque la fila
+  // exista. El 404 se decide confirmando con getServiceById, no con rowCount
+  // (mismo criterio que updateClient/softDeleteClient en clients.service.js,
+  // DB-3B).
+  await pool.query(
     `UPDATE hosting_services SET
-       plan_id          = COALESCE($2,  plan_id),
-       domain           = COALESCE($3,  domain),
-       monthly_price    = COALESCE($4,  monthly_price),
-       setup_date       = COALESCE($5,  setup_date),
-       next_due_date    = COALESCE($6,  next_due_date),
-       status           = COALESCE($7,  status),
-       storage_used_gb  = COALESCE($8,  storage_used_gb),
-       storage_total_gb = COALESCE($9,  storage_total_gb),
-       emails_used      = COALESCE($10, emails_used),
-       emails_total     = COALESCE($11, emails_total),
-       hestia_username  = COALESCE($12, hestia_username),
-       hestia_url       = COALESCE($13, hestia_url),
-       internal_notes   = COALESCE($14, internal_notes)
-     WHERE id = $1 RETURNING id`,
+       plan_id          = COALESCE(?, plan_id),
+       domain           = COALESCE(?, domain),
+       monthly_price    = COALESCE(?, monthly_price),
+       setup_date       = COALESCE(?, setup_date),
+       next_due_date    = COALESCE(?, next_due_date),
+       status           = COALESCE(?, status),
+       storage_used_gb  = COALESCE(?, storage_used_gb),
+       storage_total_gb = COALESCE(?, storage_total_gb),
+       emails_used      = COALESCE(?, emails_used),
+       emails_total     = COALESCE(?, emails_total),
+       hestia_username  = COALESCE(?, hestia_username),
+       hestia_url       = COALESCE(?, hestia_url),
+       internal_notes   = COALESCE(?, internal_notes)
+     WHERE id = ?`,
     [
-      id,
       planId ?? null,
       domain ?? null,
       monthlyPrice ?? null,
@@ -303,9 +327,11 @@ export async function updateService(id, data) {
       hestiaUsername ?? null,
       hestiaUrl ?? null,
       internalNotes ?? null,
+      id,
     ],
   );
 
+  const { rows } = await pool.query(`SELECT id FROM hosting_services WHERE id = ?`, [id]);
   if (!rows[0]) {
     const e = new Error("Servicio no encontrado");
     e.status = 404;
@@ -315,10 +341,11 @@ export async function updateService(id, data) {
 }
 
 export async function deleteService(id) {
-  const { rows } = await pool.query(`DELETE FROM hosting_services WHERE id = $1 RETURNING id`, [
-    id,
-  ]);
-  if (!rows[0]) {
+  // Hard delete real (no soft-delete): igual que deletePlan en
+  // plans.service.js, un DELETE no tiene el problema de "matched pero sin
+  // cambio de valor" — rowCount sigue siendo confiable en ambos motores acá.
+  const { rowCount } = await pool.query(`DELETE FROM hosting_services WHERE id = ?`, [id]);
+  if (rowCount === 0) {
     const e = new Error("Servicio no encontrado");
     e.status = 404;
     throw e;
@@ -326,11 +353,15 @@ export async function deleteService(id) {
 }
 
 export async function suspendService(id) {
-  const { rows } = await pool.query(
-    `UPDATE hosting_services SET status = 'suspended' WHERE id = $1 AND status != 'suspended' RETURNING id`,
+  // El WHERE excluye explícitamente el estado ya-suspendido: cuando matchea,
+  // el UPDATE SIEMPRE cambia el valor de status (de cualquier otro estado a
+  // 'suspended') — a diferencia de updateService, acá rowCount sigue siendo
+  // seguro en ambos motores, no hace falta el patrón SELECT posterior.
+  const { rowCount } = await pool.query(
+    `UPDATE hosting_services SET status = 'suspended' WHERE id = ? AND status != 'suspended'`,
     [id],
   );
-  if (!rows[0]) {
+  if (rowCount === 0) {
     const e = new Error("Servicio no encontrado o ya suspendido");
     e.status = 404;
     throw e;
@@ -339,11 +370,14 @@ export async function suspendService(id) {
 }
 
 export async function reactivateService(id) {
-  const { rows } = await pool.query(
-    `UPDATE hosting_services SET status = 'active' WHERE id = $1 AND status = 'suspended' RETURNING id`,
+  // Mismo razonamiento que suspendService: el WHERE exige status='suspended'
+  // y el SET lo cambia a 'active' — siempre hay un cambio real de valor
+  // cuando el WHERE matchea, rowCount es seguro en ambos motores.
+  const { rowCount } = await pool.query(
+    `UPDATE hosting_services SET status = 'active' WHERE id = ? AND status = 'suspended'`,
     [id],
   );
-  if (!rows[0]) {
+  if (rowCount === 0) {
     const e = new Error("Servicio no encontrado o no está suspendido");
     e.status = 404;
     throw e;
@@ -363,17 +397,23 @@ export async function changeServicePlan(id, planId) {
 
   // Actualizar plan y ajustar recursos y precio según el nuevo plan
   const { rows: planRows } = await pool.query(
-    `SELECT storage_gb, emails_limit, monthly_price FROM hosting_plans WHERE id = $1`,
+    `SELECT storage_gb, emails_limit, monthly_price FROM hosting_plans WHERE id = ?`,
     [planId],
   );
   const plan = planRows[0];
 
-  const { rows } = await pool.query(
+  // UPDATE...RETURNING -> UPDATE + SELECT posterior. Reasignar el MISMO plan
+  // que el servicio ya tenía no cambia ningún valor (plan_id/storage_total_gb/
+  // emails_total/monthly_price quedan iguales) — en MariaDB eso da rowCount=0
+  // aunque el servicio exista, mismo riesgo que updateService arriba. El 404
+  // se decide confirmando con un SELECT, no con rowCount.
+  await pool.query(
     `UPDATE hosting_services
-     SET plan_id = $2, storage_total_gb = $3, emails_total = $4, monthly_price = $5
-     WHERE id = $1 RETURNING id`,
-    [id, planId, plan.storage_gb, plan.emails_limit, plan.monthly_price],
+     SET plan_id = ?, storage_total_gb = ?, emails_total = ?, monthly_price = ?
+     WHERE id = ?`,
+    [planId, plan.storage_gb, plan.emails_limit, plan.monthly_price, id],
   );
+  const { rows } = await pool.query(`SELECT id FROM hosting_services WHERE id = ?`, [id]);
   if (!rows[0]) {
     const e = new Error("Servicio no encontrado");
     e.status = 404;
