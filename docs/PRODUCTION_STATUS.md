@@ -1,6 +1,6 @@
 # Bitlogic Client Hub — Estado de producción
 
-**Última actualización:** 2026-07-28
+**Última actualización:** 2026-07-29
 **Fuente de verdad vigente.** Todo lo que esté en `docs/archive/` es documentación histórica de sesiones de desarrollo anteriores y **no debe usarse como referencia** — puede contradecir este documento y el código real. Ante cualquier duda, este archivo y el código ganan siempre.
 
 ---
@@ -12,7 +12,7 @@ Sistema interno de Bitlogic (empresa de hosting) para gestionar clientes, servic
 ## Arquitectura real
 
 - **Frontend:** React + TanStack Start (SSR real, no SPA estática) + Vite. Build genera `dist/client/` y `dist/server/`.
-- **Backend:** Express + Node ESM, PostgreSQL con SQL directo (sin ORM). **Migración a MariaDB en curso** (rama `migration/mariadb`, no mergeada a `master`): el motor productivo definitivo pasa a ser MariaDB (VPS real: MariaDB 11.4.10, `utf8mb4`/`utf8mb4_unicode_520_ci`), pero hoy PostgreSQL sigue siendo el único motor activo en `master`. `backend/db/schema.sql` ya está normalizado a esa collation en las 20 tablas y validado contra MariaDB 11.4 real; de las queries de la aplicación, solo el dominio auth/users está convertido para funcionar contra ambos motores — ver `docs/MARIADB_MIGRATION.md`. **No cambiar `DATABASE_URL` a `mysql://` en ningún ambiente real**, rompe el resto de los módulos.
+- **Backend:** Express + Node ESM, PostgreSQL con SQL directo (sin ORM). **Migración a MariaDB en curso** (mergeada a `main`, el histórico `migration/mariadb` quedó contenido enteramente en el merge `70fec99`): el motor productivo definitivo pasa a ser MariaDB (VPS real: MariaDB 11.4.10, `utf8mb4`/`utf8mb4_unicode_520_ci`), pero hoy PostgreSQL sigue siendo el único motor activo en producción. `backend/db/schema.sql` ya está normalizado a esa collation en las 20 tablas y validado contra MariaDB 11.4 real; de las queries de la aplicación, los dominios auth/users y **clients** ya están convertidos para funcionar contra ambos motores — ver `docs/MARIADB_MIGRATION.md`. **No cambiar `DATABASE_URL` a `mysql://` en ningún ambiente real**, rompe el resto de los módulos.
 - **Tiempo real:** Socket.IO para el chat de tickets — sin adapter compartido, por lo que el backend **debe** correr en 1 sola instancia (fork), nunca en cluster/múltiples workers.
 - **Auth:** JWT access token (15 min, en memoria del navegador) + refresh token en cookie httpOnly (30 días / 1 día).
 - **Proceso:** PM2 con `ecosystem.config.js` (raíz del repo) — 2 apps (`bitlogic-backend`, `bitlogic-frontend`), ambas fork/1 instancia.

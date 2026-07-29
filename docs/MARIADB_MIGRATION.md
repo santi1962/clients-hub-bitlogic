@@ -2,14 +2,14 @@
 
 **Decisión definitiva del usuario:** el motor productivo de Bitlogic Client Hub pasa a ser MariaDB/MySQL (el VPS real usa MariaDB 11.4.10 vía HestiaCP). PostgreSQL sigue siendo el motor **activo hoy** — esta migración se hace de a un dominio funcional por vez, sin apagar Postgres hasta que todos los módulos y los datos reales estén validados contra MariaDB.
 
-**No cambiar `DATABASE_URL` a `mysql://` en ningún ambiente real todavía.** Solo el dominio auth/users tiene sus queries convertidas (ver más abajo) — el resto de los módulos (clientes, hosting, dominios, facturación, soporte, tareas, configuración, backups, scheduler) siguen escritos en sintaxis PostgreSQL y romperían contra MariaDB.
+**No cambiar `DATABASE_URL` a `mysql://` en ningún ambiente real todavía.** Los dominios auth/users y **clients** tienen sus queries convertidas (ver más abajo) — el resto de los módulos (hosting, dominios, facturación, soporte, tareas, configuración, backups, scheduler) siguen escritos en sintaxis PostgreSQL y romperían contra MariaDB.
 
 ## Empezá por acá (si estás retomando esto, en esta máquina o en otra)
 
-- **Rama:** `migration/mariadb`, pusheada a `origin` (no mergeada a `master`, sin PR abierto). `git fetch && git checkout migration/mariadb` para tenerla.
-- **Último commit de esta rama a la fecha:** `246260f` — "docs: document MariaDB schema baseline" (Fase DB-2.5).
-- **Qué está hecho:** capa de compatibilidad dual-driver (`pg`/`mysql2`) en `backend/src/db/pool.js`, schema MariaDB consolidado y con collation normalizada (`backend/db/schema.sql`, validado contra MariaDB 11.4 real), y el dominio **auth/users** con sus queries convertidas y probadas contra ambos motores.
-- **Qué falta:** todo lo demás (Fase DB-3B en adelante) — convertir el resto de los módulos uno por uno. Recomendación ya registrada: `clients` primero, después `hosting`/`plans`, dejando facturación/`billing` para el final (es el módulo con más incompatibilidades: `UPDATE...RETURNING`, `FILTER`, `generate_series`).
+- **Rama:** el trabajo de migración vive mergeado en `main` (el histórico `migration/mariadb` de `origin` quedó contenido enteramente dentro de `main` desde el merge `70fec99`, que además trajo hardening/security/scheduler). Trabajar directo sobre `main`.
+- **Última fase cerrada:** DB-3B (dominio **clients** convertido).
+- **Qué está hecho:** capa de compatibilidad dual-driver (`pg`/`mysql2`) en `backend/src/db/pool.js`, schema MariaDB consolidado y con collation normalizada (`backend/db/schema.sql`, validado contra MariaDB 11.4 real), y los dominios **auth/users** y **clients** con sus queries convertidas y probadas contra ambos motores.
+- **Qué falta:** todo lo demás (Fase DB-3C en adelante) — convertir el resto de los módulos uno por uno. Orden recomendado: `hosting`/`plans` primero (ya sin `clients` de por medio), dejando facturación/`billing` para el final (es el módulo con más incompatibilidades: `UPDATE...RETURNING`, `FILTER`, `generate_series`).
 - **Antes de tocar código nuevo:** correr `cd backend && npm test` (Postgres) y, si hay una MariaDB descartable a mano, `MARIADB_TEST_URL=mysql://... npm test` (ver la sección "Cómo probar contra ambos motores" más abajo) — para confirmar que se arranca desde un estado verde.
 - El resto de este documento es la referencia técnica completa (decisiones de conversión, política de UUID, collation, cómo levantar una MariaDB de prueba, riesgos). Esta sección de arriba es solo el punto de entrada rápido.
 
@@ -20,7 +20,8 @@
 | DB-0 / DB-1 | Rama `migration/mariadb`, instaló `mysql2` (sin sacar `pg`), reescribió `db/pool.js` como capa de compatibilidad dual-driver, `config/index.js` detecta el motor por el esquema de `DATABASE_URL`, creó `db/schema.sql` (schema MariaDB consolidado, validado contra MariaDB 10.4 real) | ✅ |
 | DB-3A | Convirtió el dominio auth/users (`users`, `refresh_tokens`, `password_reset_tokens`) para funcionar contra ambos motores | ✅ |
 | DB-2.5 | Normalizó la collation de **todo** `db/schema.sql` a `utf8mb4_unicode_520_ci` (la del VPS real), creó `backend/scripts/apply-mariadb-schema.mjs` (runner reproducible del schema), validó todo contra MariaDB **11.4.12** real (Docker, no 10.4), corrigió la idempotencia de los triggers, y blindó estructuralmente los fixtures de test | ✅ |
-| DB-3B en adelante | Resto de los módulos (clientes, hosting, dominios, facturación, soporte, tareas, configuración, backups, scheduler) | ⏳ pendiente |
+| DB-3B | Convirtió el dominio **clients** (única tabla dueña: `clients`) para funcionar contra ambos motores, retiró el `DEFAULT (UUID())` de `clients.id`, y documentó un patrón nuevo (no usado en DB-3A): decidir 404 por un SELECT posterior en vez de por el `rowCount` de la UPDATE — ver "UPDATE/DELETE sin RETURNING: por qué no alcanza con rowCount" más abajo | ✅ |
+| DB-3C en adelante | Resto de los módulos (hosting, dominios, facturación, soporte, tareas, configuración, backups, scheduler) | ⏳ pendiente |
 
 ## Cómo se elige el motor
 
@@ -52,6 +53,22 @@ Las queries **ya convertidas** (dominio auth/users) están escritas con `?` (sin
 - `INSERT ... RETURNING` / `DELETE ... RETURNING`: MariaDB 10.5+/10.0.5+ los soporta nativo, pero **no se usó** en la conversión de auth/users — se prefirió una estrategia única para los tres casos (ver abajo), más simple de testear y sin dos caminos de código por motor.
 - `UPDATE ... RETURNING`: MariaDB no lo soporta (recién en 13.0, no disponible en producción). Se reemplaza por `UPDATE ...` + `SELECT ...` con la **misma condición exacta** del `WHERE`, chequeando `rowCount === 0` para el caso "no encontrado" antes de hacer el SELECT. Cuando el flujo tiene más de una escritura relacionada (ej. `resetPassword` en `users.service.js`, que además revoca refresh tokens), las dos operaciones + el SELECT final corren en una sola transacción (`pool.connect()` + `BEGIN`/`COMMIT`/`ROLLBACK`).
 - `DELETE ... RETURNING id`: si el único dato que se necesita de vuelta es el `id` que ya se mandó por parámetro, no hace falta ningún SELECT — se devuelve el mismo id tras confirmar `rowCount > 0` (ver `deletePortalUser`).
+
+### UPDATE/DELETE sin RETURNING: por qué no alcanza con `rowCount` para decidir 404 (hallazgo de la Fase DB-3B)
+
+El patrón de DB-3A (`UPDATE ...; if (rowCount === 0) throw 404`) asume que MariaDB reporta como "afectadas" las filas que **matchearon** el `WHERE`, igual que Postgres. Eso es cierto solo si el driver habilita `CLIENT_FOUND_ROWS` — **`mysql2` no lo hace por default en este proyecto** (`db/pool.js` no pasa esa opción). Sin ella, `affectedRows` cuenta filas **realmente modificadas**: un `UPDATE` cuyo `COALESCE` no cambia ningún valor (ej. un PATCH que repite el `status` actual, o repetir un soft-delete sobre un cliente ya `inactive`) devuelve `rowCount = 0` en MariaDB aunque la fila exista y el `WHERE` haya matcheado — mientras que Postgres, en el mismo caso, sigue devolviendo `rowCount = 1`.
+
+Esto no se detectó en DB-3A porque `resetPassword` siempre escribe `updated_at = now()`, un valor que cambia en cada llamada — enmascara el problema sin querer. `updateClient`/`softDeleteClient` (dominio `clients`) sí lo exponen, porque un cliente puede recibir un PATCH/DELETE que no cambia ningún valor real.
+
+**Solución aplicada (sin tocar `pool.js`, infraestructura compartida fuera de alcance de este dominio):** el 404 se decide con un `SELECT` posterior que confirma existencia, nunca con el `rowCount` de la `UPDATE`. Ver `updateClient` y `softDeleteClient` en `clients.service.js`. **Este es el patrón recomendado para cualquier módulo futuro** que convierta un `UPDATE ... RETURNING`/`DELETE ... RETURNING` cuyo `WHERE` pueda matchear una fila sin cambiar ningún valor (soft-deletes idempotentes, PATCHs parciales) — `rowCount` sigue siendo válido únicamente cuando la operación garantiza un cambio real en cada llamada exitosa (como `updated_at = now()` en `resetPassword`).
+
+### `ILIKE`, `FILTER (WHERE ...)` y el alias de `COUNT(*)` (hallazgos de la Fase DB-3B)
+
+Tres incompatibilidades nuevas que no habían aparecido en auth/users (ese dominio no tiene búsqueda ni agregados), encontradas al convertir `clients.service.js`:
+
+- **`ILIKE`** no existe en MariaDB. La conversión ingenua a `LIKE` plano dependería de que la columna tenga collation case-insensitive (cierto hoy para `name`/`company`/`email` de `clients`, por ser el default de tabla `_520_ci`, pero no garantizado para siempre ni generalizable a otras columnas). Se usó en cambio `LOWER(col) LIKE LOWER(?)`, que da el mismo resultado case-insensitive en **ambos motores con una sola query**, sin depender del collation ni bifurcar por driver.
+- **`FILTER (WHERE ...)`** sobre una función de agregado (`COUNT(hs.id) FILTER (WHERE ...)`, `MIN(hs.next_due_date) FILTER (WHERE ...)`) es sintaxis exclusiva de Postgres. Se reemplaza por `COUNT(CASE WHEN ... THEN hs.id END)` / `MIN(CASE WHEN ... THEN hs.next_due_date END)` — estándar SQL, funciona igual en ambos motores.
+- **`SELECT COUNT(*) FROM ...` sin alias**: Postgres nombra la columna resultante `count` por default; MariaDB la nombra `COUNT(*)` literal. Cualquier código que lea `rows[0].count` (como `listClients`) recibía `undefined` contra MariaDB sin un alias explícito. Se agregó `AS count` a la query. **Cualquier `SELECT COUNT(*)` sin alias que se convierta en un módulo futuro tiene este mismo bug latente** — vale la pena revisarlos todos cuando les toque su fase (`dashboard.service.js`, `audit.service.js`, `billing.service.js`, `hosting.service.js`, etc. todavía lo tienen sin alias, pero no se tocaron por estar fuera de alcance de DB-3B).
 
 ### `ON CONFLICT` vs `INSERT IGNORE`/`ON DUPLICATE KEY UPDATE`
 
@@ -86,7 +103,7 @@ Ninguna tabla nueva se tocó en la Fase DB-2.5 (solo collation) — esta tabla d
 | `refresh_tokens` | No (retirado en DB-3A) | — | — |
 | `password_reset_tokens` | No (retirado en DB-3A) | — | — |
 | `users` | **Sí** — `seeds/006_client_users_seed.js` (demo) inserta sin id explícito | Actualizar/eliminar ese seed demo | Sin fecha — no bloquea producción (los seeds demo no corren contra la base real, `docs/PRODUCTION_STATUS.md`) |
-| `clients` | Sí | Módulo Clientes | DB-3B |
+| `clients` | No (retirado en DB-3B) | — | — |
 | `hosting_plans`, `hosting_services` | Sí | Módulo Servicios/Planes | DB-3C (sugerida) |
 | `payment_notices`, `payments`, `payment_reminder_logs` | Sí | Módulo Facturación/Cobranza | Última (la más densa en incompatibilidades, ver recomendación de la Fase DB-3A) |
 | `domains` | Sí | Módulo Dominios | A definir |
@@ -116,6 +133,8 @@ La Fase DB-2.5 normalizó **las 20 tablas** a `utf8mb4_unicode_520_ci` de una so
 `email`/`domain` (`users`, `clients`, `hosting_services`, `domains`) se dejan **case-insensitive** (default `_520_ci`) a propósito — coincide con la normalización `.toLowerCase()` ya existente en el código y con el uso de `ILIKE` para búsqueda de dominios. Nota: Postgres tenía el `UNIQUE` de estas columnas como case-sensitive por default (TEXT); MariaDB con `_520_ci` es ligeramente más estricto para prevenir duplicados (ej. "Ejemplo.com" y "ejemplo.com" se tratan como el mismo dominio) — evaluado como un cambio de comportamiento aceptable, no un bug, dado que la app ya trata email/domain como case-insensitive en la práctica.
 
 Validado contra MariaDB 11.4 real: FK de `users`/`clients`/`hosting_plans`/`hosting_services`/`payment_notices`/`support_tickets` (`SET NULL`, `CASCADE` y `RESTRICT` según corresponda), `UNIQUE` de email/domain/notice_number/ticket_number, `CHECK` de roles/estados, comparación case-insensitive de email/domain, comparación exacta (case-sensitive) de token_hash/ticket_number/automation_settings.key, `JSON` inválido rechazado (`CHECK (json_valid(...))`, autogenerado por MariaDB en cada columna `JSON` — no hay que declararlo a mano), `DECIMAL(12,2)` sin error de punto flotante, texto utf8mb4 de 4 bytes (emoji) y con ñ/tildes.
+
+**Re-validado en la Fase DB-3B** (retiro del `DEFAULT (UUID())` de `clients.id`): `apply-mariadb-schema.mjs` corrido dos veces seguidas contra una MariaDB descartable confirma que el schema completo sigue siendo idempotente con ese cambio, y `SHOW CREATE TABLE clients` confirma que la columna `id` queda sin ningún `DEFAULT`. Esta vez la instancia descartable fue MariaDB **10.4** (mysqld portable de XAMPP, datadir y puerto propios — Opción B de este documento, no Docker) porque Docker Desktop no llegó a levantar el daemon en esta sesión; sigue pendiente repetir la validación contra 11.x cuando Docker esté disponible, aunque el cambio de esta fase (retirar un `DEFAULT`) no depende de ninguna feature específica de versión.
 
 ### Runner reproducible del schema
 
@@ -183,8 +202,11 @@ Sin `MARIADB_TEST_URL`, `test/auth-mariadb.test.js` se saltea (no falla). Ver `d
 
 - **`seeds/006_client_users_seed.js`** (demo) todavía depende de `DEFAULT (UUID())` en `users.id` — bloquea retirar ese default hasta que se actualice o se elimine (ver tabla de política UUID arriba).
 - **Cross-dependencias de otros módulos con `users`**: `settings.controller.js` (conteo de usuarios) y `routes/onboarding.routes.js` (existencia de usuario de portal) hacen `SELECT`/`EXISTS` directo contra `users` en sintaxis Postgres — no se tocaron (pertenecen a otros módulos), pero son la evidencia de que convertir un dominio no aísla completamente sus tablas de los demás módulos hasta que todos estén convertidos.
+- **Cross-dependencias de otros módulos con `clients`** (nuevo en DB-3B, mismo patrón que el punto anterior): `dashboard.service.js`, `billing.service.js`, `email.service.js`, `domains.service.js`, `hosting.service.js`, `support.service.js`, `tasks.service.js`, `users.service.js`, `settings.controller.js`, `app.js`, `onboarding.routes.js`, `mercadopago.routes.js`, `payment-reminders.job.js` y varios scripts hacen `JOIN`/`SELECT` contra `clients` en sintaxis Postgres — no se tocaron, fuera de alcance de esta fase.
+- **`audit.service.js` (`logAction`) sigue en sintaxis Postgres (`$1..$11`, sin `INSERT ... VALUES` con `?`)** — es transversal (lo llaman casi todos los controllers, incluido `clients.controller.js` en cada create/update/remove), no pertenece al dominio `clients` y no se tocó. Contra MariaDB, cada llamada a `logAction` falla con un error de sintaxis (`$1` no es un placeholder válido para `mysql2`) — pero como `logAction` envuelve su `INSERT` en `try/catch` y solo hace `console.error` sin relanzar, la request HTTP nunca se ve afectada (confirmado en `clients-mariadb.test.js`: el flujo completo de alta/edición/baja da los status codes correctos aunque el audit log no se llegue a escribir). Efecto real: **contra MariaDB, ninguna acción sobre `clients` queda auditada todavía** — sin romper nada, pero sin dejar rastro. Se resuelve cuando `audit_logs` tenga su propia fase de conversión.
 - El mensaje de log `"PostgreSQL conectado"` en `server.js` queda fijo sin importar el driver real activo — cosmético, no funcional, pendiente de prolijidad para una fase futura.
-- El resto de las tablas (todo lo que no sea auth/users) tiene la collation ya alineada al VPS desde esta fase, pero sus queries de aplicación siguen sin convertir — cambiar `DATABASE_URL` a `mysql://` en cualquier ambiente real sigue rompiendo esos módulos.
+- El resto de las tablas (todo lo que no sea auth/users/clients) tiene la collation ya alineada al VPS desde la Fase DB-2.5, pero sus queries de aplicación siguen sin convertir — cambiar `DATABASE_URL` a `mysql://` en cualquier ambiente real sigue rompiendo esos módulos.
+- **`clients.email` no tiene `UNIQUE`** (a diferencia de `users.email`) — dos clientes pueden compartir el mismo email hoy, en ambos motores. Documentado como comportamiento existente confirmado durante DB-3B (`clients-mariadb.test.js`), no como bug introducido por la migración — no se agregó ninguna restricción nueva porque cambiar reglas de negocio está fuera del alcance de esta migración de motor.
 
 ## Resueltos en esta fase (ya no son riesgo)
 
