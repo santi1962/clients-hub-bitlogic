@@ -165,7 +165,9 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_revoked_expires ON refresh_tokens 
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS clients (
-  id          CHAR(36)      NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): el único INSERT (clients.service.js createClient)
+  -- ya envía id explícito (randomUUID() de Node) desde la Fase DB-3B.
+  id          CHAR(36)      NOT NULL PRIMARY KEY,
   name        TEXT          NOT NULL,
   company     TEXT,
   email       TEXT          NOT NULL,
