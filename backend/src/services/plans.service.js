@@ -1,16 +1,16 @@
+import { randomUUID } from "crypto";
 import pool from "../db/pool.js";
-import { v4 as uuidv4 } from "uuid";
 
 export async function listPlans({ status, limit = 100 } = {}) {
   let query = "SELECT * FROM hosting_plans";
   const params = [];
 
   if (status) {
-    query += " WHERE status = $1";
+    query += " WHERE status = ?";
     params.push(status);
   }
 
-  query += " ORDER BY monthly_price ASC LIMIT $" + (params.length + 1);
+  query += " ORDER BY monthly_price ASC LIMIT ?";
   params.push(limit);
 
   const result = await pool.query(query, params);
@@ -22,7 +22,7 @@ export async function listPlans({ status, limit = 100 } = {}) {
 }
 
 export async function getPlanById(id) {
-  const result = await pool.query("SELECT * FROM hosting_plans WHERE id = $1", [id]);
+  const result = await pool.query("SELECT * FROM hosting_plans WHERE id = ?", [id]);
   if (result.rows.length === 0) {
     const error = new Error("Plan no encontrado");
     error.status = 404;
@@ -48,12 +48,14 @@ export async function createPlan(data) {
     throw error;
   }
 
-  const id = uuidv4();
-  const result = await pool.query(
+  // id generado en la app (UUID v4, crypto.randomUUID) — misma política que
+  // auth/users (DB-3A) y clients (DB-3B), reemplaza el uuidv4() del paquete
+  // "uuid" que se usaba acá antes de esta fase.
+  const id = randomUUID();
+  await pool.query(
     `INSERT INTO hosting_plans
      (id, name, description, storage_gb, websites_limit, emails_limit, monthly_price, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING *`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       name.trim(),
@@ -65,6 +67,7 @@ export async function createPlan(data) {
       status,
     ],
   );
+  const result = await pool.query("SELECT * FROM hosting_plans WHERE id = ?", [id]);
 
   return mapPlan(result.rows[0]);
 }
@@ -74,34 +77,33 @@ export async function updatePlan(id, data) {
 
   const updates = [];
   const values = [];
-  let paramCount = 1;
 
   if (name !== undefined) {
-    updates.push(`name = $${paramCount++}`);
+    updates.push(`name = ?`);
     values.push(name.trim());
   }
   if (description !== undefined) {
-    updates.push(`description = $${paramCount++}`);
+    updates.push(`description = ?`);
     values.push(description || null);
   }
   if (storageGb !== undefined) {
-    updates.push(`storage_gb = $${paramCount++}`);
+    updates.push(`storage_gb = ?`);
     values.push(storageGb);
   }
   if (websitesLimit !== undefined) {
-    updates.push(`websites_limit = $${paramCount++}`);
+    updates.push(`websites_limit = ?`);
     values.push(websitesLimit);
   }
   if (emailsLimit !== undefined) {
-    updates.push(`emails_limit = $${paramCount++}`);
+    updates.push(`emails_limit = ?`);
     values.push(emailsLimit);
   }
   if (monthlyPrice !== undefined) {
-    updates.push(`monthly_price = $${paramCount++}`);
+    updates.push(`monthly_price = ?`);
     values.push(monthlyPrice);
   }
   if (status !== undefined) {
-    updates.push(`status = $${paramCount++}`);
+    updates.push(`status = ?`);
     values.push(status);
   }
 
@@ -109,14 +111,15 @@ export async function updatePlan(id, data) {
     return getPlanById(id);
   }
 
-  updates.push("updated_at = now()");
+  // UPDATE...RETURNING no existe en MariaDB: UPDATE + SELECT posterior, igual
+  // patrón que clients.service.js (DB-3B). El 404 se decide por el SELECT,
+  // no por rowCount: mysql2 no habilita CLIENT_FOUND_ROWS, así que un PATCH
+  // que no cambia ningún valor (ej. reenviar el mismo monthly_price) daría
+  // rowCount=0 en MariaDB aunque el plan exista.
   values.push(id);
+  await pool.query(`UPDATE hosting_plans SET ${updates.join(", ")}, updated_at = now() WHERE id = ?`, values);
 
-  const result = await pool.query(
-    `UPDATE hosting_plans SET ${updates.join(", ")} WHERE id = $${paramCount} RETURNING *`,
-    values,
-  );
-
+  const result = await pool.query("SELECT * FROM hosting_plans WHERE id = ?", [id]);
   if (result.rows.length === 0) {
     const error = new Error("Plan no encontrado");
     error.status = 404;
@@ -127,7 +130,15 @@ export async function updatePlan(id, data) {
 }
 
 export async function deletePlan(id) {
-  const result = await pool.query("DELETE FROM hosting_plans WHERE id = $1", [id]);
+  // DELETE real (no soft-delete): a diferencia de un UPDATE con COALESCE, un
+  // DELETE no tiene ambigüedad "matched pero sin cambio de valor" — rowCount
+  // sigue siendo confiable en ambos motores acá, sin necesitar un SELECT
+  // posterior. Si el plan tiene servicios asociados, la FK
+  // hosting_services_plan_id_fkey (sin ON DELETE, por lo tanto RESTRICT)
+  // rechaza el DELETE — comportamiento preexistente sin manejo especial en
+  // ninguno de los dos motores (errorHandler.js no distingue el código de
+  // violación de FK), no se agrega acá.
+  const result = await pool.query("DELETE FROM hosting_plans WHERE id = ?", [id]);
   if (result.rowCount === 0) {
     const error = new Error("Plan no encontrado");
     error.status = 404;
