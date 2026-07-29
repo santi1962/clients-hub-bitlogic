@@ -639,13 +639,24 @@ CREATE INDEX IF NOT EXISTS idx_payment_reminder_logs_sent_at   ON payment_remind
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS company_settings (
-  id            CHAR(36)     NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): los únicos INSERT (settings.service.js
+  -- updateCompanySettings/updateCompanyLogo) ya envían id explícito
+  -- (randomUUID() de Node) desde la Fase DB-3H.
+  id            CHAR(36)     NOT NULL PRIMARY KEY,
   company_name  TEXT         NOT NULL,
   contact_email TEXT,
   phone         TEXT,
   tax_id        TEXT,
   address       TEXT,
   currency      TEXT         NOT NULL DEFAULT 'ARS',
+  -- logo_url: hallazgo de la Fase DB-3H — ni este archivo ni
+  -- migrations/012_settings_schema.sql (Postgres, sin migración posterior
+  -- que la agregue) declaraban esta columna, pese a que
+  -- settings.service.js updateCompanyLogo ya la usa. Mismo patrón que el
+  -- gap de columnas de adjunto encontrado en support_ticket_messages
+  -- (DB-3F) — se corrige acá únicamente del lado MariaDB, por el mismo
+  -- criterio ya aplicado: no se tocan migraciones de Postgres.
+  logo_url      TEXT,
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
