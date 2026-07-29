@@ -362,7 +362,11 @@ CREATE INDEX IF NOT EXISTS idx_domains_expiration_date ON domains (expiration_da
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS support_tickets (
-  id                  CHAR(36)     NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): el único INSERT (support.service.js createTicket)
+  -- ya envía id explícito (randomUUID() de Node) desde la Fase DB-3F.
+  -- seeds/005_support_seed.js también envía id explícito, no depende de
+  -- ningún default.
+  id                  CHAR(36)     NOT NULL PRIMARY KEY,
   ticket_number       VARCHAR(50)  COLLATE utf8mb4_bin NOT NULL, -- TEXT+UNIQUE en Postgres -> acotado. Autogenerado por trigger, ver abajo. Comparación exacta, no case-insensitive.
   client_id           CHAR(36)     NOT NULL,
   hosting_service_id  CHAR(36),
@@ -412,13 +416,33 @@ DELIMITER ;
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS support_ticket_messages (
-  id             CHAR(36)  NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): el único INSERT (support.service.js addMessage) ya
+  -- envía id explícito (randomUUID() de Node) desde la Fase DB-3F.
+  -- seeds/005_support_seed.js también envía id explícito.
+  id             CHAR(36)  NOT NULL PRIMARY KEY,
   ticket_id      CHAR(36)  NOT NULL,
   sender_user_id CHAR(36),
   sender_name    TEXT      NOT NULL,
   sender_role    TEXT      NOT NULL,
-  message        TEXT      NOT NULL,
+  -- message es NULLABLE a propósito (hallazgo de la Fase DB-3F): un mensaje
+  -- de "solo adjunto" (sin texto) es un caso válido y ya soportado por
+  -- support.service.js/support.controller.js (`message: message || null`,
+  -- valida `!message && !attachmentUrl` como el único caso de error). Ni
+  -- migrations/005_support_schema.sql (Postgres) ni la versión anterior de
+  -- este archivo declaraban esta columna nullable, ni tenían las 3 columnas
+  -- de adjunto de abajo — gap preexistente en el repo (no introducido por
+  -- esta fase) que ya haría fallar un mensaje solo-adjunto contra ese
+  -- schema. Se corrige acá únicamente del lado MariaDB, por decisión
+  -- explícita: no se tocan migraciones de Postgres (fuente de verdad
+  -- mientras sea el motor activo) — ver docs/MARIADB_MIGRATION.md.
+  message        TEXT,
   is_internal    BOOLEAN   DEFAULT false,
+  -- attachment_*: mismo hallazgo — el código ya las inserta/lee
+  -- (support.service.js, support.controller.js, portal.routes.js) pero no
+  -- existían en ningún schema versionado de esta tabla.
+  attachment_url  TEXT,
+  attachment_type TEXT,
+  attachment_name TEXT,
   created_at     DATETIME  DEFAULT CURRENT_TIMESTAMP,
 
   CONSTRAINT support_ticket_messages_ticket_id_fkey FOREIGN KEY (ticket_id) REFERENCES support_tickets(id) ON DELETE CASCADE,
