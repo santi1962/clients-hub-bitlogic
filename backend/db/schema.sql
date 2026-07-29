@@ -496,7 +496,9 @@ CREATE INDEX IF NOT EXISTS idx_email_logs_client_id  ON email_logs (related_clie
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS audit_logs (
-  id           CHAR(36)  NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): el único INSERT (audit.service.js logAction) ya
+  -- envía id explícito (randomUUID() de Node) desde la Fase DB-3D.
+  id           CHAR(36)  NOT NULL PRIMARY KEY,
   user_id      CHAR(36),
   user_name    TEXT      NOT NULL,
   user_role    TEXT      NOT NULL,
