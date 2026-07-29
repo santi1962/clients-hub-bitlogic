@@ -33,6 +33,8 @@ backend/test/
 ├── auth-mariadb.test.js            # Fase DB-3A: integración REAL contra MariaDB (opcional, ver MARIADB_TEST_URL abajo)
 ├── clients-domain.test.js          # Fase DB-3B: UUID v4 generado en la app, UPDATE/DELETE+SELECT en vez de RETURNING (decidiendo 404 por SELECT, no por rowCount), placeholders `?` del WHERE dinámico de listClients
 ├── clients-mariadb.test.js         # Fase DB-3B: integración REAL contra MariaDB (opcional, ver MARIADB_TEST_URL abajo)
+├── hosting-plans-domain.test.js    # Fase DB-3C: UUID v4, UPDATE/DELETE+SELECT vs. rowCount (cuándo cada uno es seguro, ver docs/MARIADB_MIGRATION.md), placeholders `?` de listServices/listPlans
+├── hosting-mariadb.test.js         # Fase DB-3C: integración REAL contra MariaDB (opcional, ver MARIADB_TEST_URL abajo)
 ├── fixture-safety.test.js          # Fase DB-2.5: verifica la protección estructural contra el incidente de auto-discovery (ver más abajo)
 ├── helpers/
 │   ├── server.js                   # Levanta un app de Express en un puerto efímero (0) para pegarle con fetch nativo
@@ -43,18 +45,20 @@ backend/test/
     ├── load-config.mjs             # Corrido en un proceso hijo: config/index.js valida al importarse y hace process.exit(1) si falta algo
     ├── scheduler-init.mjs          # Corrido en un proceso hijo: initScheduler() solo tiene efecto la primera vez por proceso
     ├── mariadb-auth-flow.mjs       # Corrido en un proceso hijo por auth-mariadb.test.js, con DATABASE_URL apuntando a la MariaDB descartable
-    └── mariadb-clients-flow.mjs    # Corrido en un proceso hijo por clients-mariadb.test.js, mismo patrón que el de arriba
+    ├── mariadb-clients-flow.mjs    # Corrido en un proceso hijo por clients-mariadb.test.js, mismo patrón que el de arriba
+    └── mariadb-hosting-flow.mjs    # Corrido en un proceso hijo por hosting-mariadb.test.js, mismo patrón
 ```
 
-## Prueba de integración real contra MariaDB (dominios auth/users y clients)
+## Prueba de integración real contra MariaDB (dominios auth/users, clients, hosting_plans/hosting_services)
 
-`auth-mariadb.test.js` y `clients-mariadb.test.js` son las pruebas de la suite que hablan con un motor MariaDB real en vez de mockear `pool.query`/`pool.connect` — necesarias porque un mock no puede confirmar que las queries convertidas (placeholders `?`, el patrón UPDATE+SELECT que reemplaza a `RETURNING`, la normalización de errores de duplicado, `LOWER()/LIKE` en vez de `ILIKE`, `COUNT(CASE WHEN...)` en vez de `FILTER`) realmente funcionan contra el driver `mysql2`.
+`auth-mariadb.test.js`, `clients-mariadb.test.js` y `hosting-mariadb.test.js` son las pruebas de la suite que hablan con un motor MariaDB real en vez de mockear `pool.query`/`pool.connect` — necesarias porque un mock no puede confirmar que las queries convertidas (placeholders `?`, el patrón UPDATE+SELECT que reemplaza a `RETURNING`, la normalización de errores de duplicado, `LOWER()/LIKE` en vez de `ILIKE`, `COUNT(CASE WHEN...)` en vez de `FILTER`) realmente funcionan contra el driver `mysql2`.
 
-- **Sin `MARIADB_TEST_URL` seteada**: ambos tests se saltean (`skip`), no fallan. Es el caso normal en un entorno sin MariaDB disponible.
+- **Sin `MARIADB_TEST_URL` seteada**: los tres tests se saltean (`skip`), no fallan. Es el caso normal en un entorno sin MariaDB disponible.
 - **Con `MARIADB_TEST_URL`** (ej. `mysql://root:@127.0.0.1:13309/ignorado` — el nombre de la base en la URL no importa): cada test crea su propia base temporal (`bitlogic_test_<timestamp>`), la borra al terminar, y nunca toca la base que indica la URL literal ni ninguna otra base existente en ese servidor.
-- **Cómo levantar una MariaDB descartable para correr esto localmente**: ver `docs/MARIADB_MIGRATION.md`. `clients-mariadb.test.js` se validó en la Fase DB-3B contra MariaDB 10.4 (XAMPP portable, Opción B del doc) porque Docker no estaba disponible en esa sesión — el schema de este dominio no depende de ninguna feature específica de 11.x.
-- Cada fixture (`fixtures/mariadb-auth-flow.mjs`, `fixtures/mariadb-clients-flow.mjs`) tiene un guard explícito (`MARIADB_FIXTURE_RUN=1`, seteado solo por su propio test) — ver la sección de protección de fixtures abajo.
-- `clients-mariadb.test.js` además ejercita una FK real (`hosting_services.client_id -> clients.id`, insertando su propia copia mínima de esas dos tablas en la base temporal) para confirmar que la FK sigue siendo válida tras retirar el `DEFAULT (UUID())` de `clients.id` en la Fase DB-3B.
+- **Cómo levantar una MariaDB descartable para correr esto localmente**: ver `docs/MARIADB_MIGRATION.md`. `clients-mariadb.test.js` y `hosting-mariadb.test.js` se validaron (Fases DB-3B y DB-3C) contra MariaDB 10.4 (XAMPP portable, Opción B del doc) porque Docker no llegó a levantar el daemon en ninguna de las dos sesiones — el schema de estos dominios no depende de ninguna feature específica de 11.x.
+- Cada fixture (`fixtures/mariadb-auth-flow.mjs`, `fixtures/mariadb-clients-flow.mjs`, `fixtures/mariadb-hosting-flow.mjs`) tiene un guard explícito (`MARIADB_FIXTURE_RUN=1`, seteado solo por su propio test) — ver la sección de protección de fixtures abajo.
+- `clients-mariadb.test.js` además ejercita una FK real (`hosting_services.client_id -> clients.id`) para confirmar que sigue siendo válida tras retirar el `DEFAULT (UUID())` de `clients.id` en la Fase DB-3B.
+- `hosting-mariadb.test.js` (Fase DB-3C) cubre el CRUD completo de planes y servicios (incluida la ruta viva `plans.service.js`, no la inalcanzable de `hosting.service.js` — ver "Hallazgo de ruteo" en `docs/MARIADB_MIGRATION.md`), cambio de plan, suspender/reactivar, y ambas FKs de `hosting_services` (`client_id`, `plan_id`) con inserts crudos.
 
 ## Protección estructural de fixtures (incidente de la Fase DB-3A)
 
@@ -68,7 +72,7 @@ backend/test/
 ## Qué se usa como mock/stub
 
 - **PostgreSQL**: `pool.query` se reemplaza por respuestas programadas (`helpers/pool-mock.js`) en los tests de auth, clients, autorización del portal y scheduler. `health.test.js` sí usa la base real para el caso "DB disponible" (una sola query de lectura), y mockea `pool.query` para simular "DB caída". `auth-users-domain.test.js` además mockea `pool.connect()` (`mockPoolConnect`) para probar la transacción de `resetPassword` sin tocar ninguna base.
-- **MariaDB**: `auth-mariadb.test.js` y `clients-mariadb.test.js` son la excepción real (no mock) — ver la sección dedicada más abajo.
+- **MariaDB**: `auth-mariadb.test.js`, `clients-mariadb.test.js` y `hosting-mariadb.test.js` son la excepción real (no mock) — ver la sección dedicada más abajo.
 - **MercadoPago**: nunca se llama a la API real. `mercadopago-webhook.test.js` prueba `verifyMercadoPagoWebhookSignature()` — una función pura que no hace red — y, a nivel HTTP, confirma que una firma inválida corta el flujo (401) **antes** de llegar a `getMpClient()`/`Payment.get()` (no hay `MP_ACCESS_TOKEN` configurado en el proceso de test; si el código intentara llamar a MP real fallaría con 503, no 401).
 - **SMTP / WhatsApp / Telegram / HestiaCP**: ningún test ejercita código que las llame. Los jobs del scheduler que se prueban (`test-lock-job`, `test-failing-job`, etc.) son jobs de prueba registrados ad-hoc, no los reales (`hestia-sync`, `delinquency-detection`, `payment-reminders`), así que no hace falta mockear esas integraciones.
 - **Archivos subidos**: los tests de uploads limpian con `t.after()` cualquier archivo que efectivamente se escriba en `backend/uploads/tickets/` durante la corrida — no quedan residuos incluso si una aserción posterior falla.
@@ -80,7 +84,7 @@ backend/test/
 - No hay pruebas de integración con MercadoPago real (checkout real, webhook real de una cuenta real) — solo la verificación de firma, que es lo que se puede probar sin credenciales.
 - No hay pruebas end-to-end de UI/frontend (Playwright u otro), ni de Socket.IO más allá del handshake HTTP.
 - No hay pruebas de carga/performance ni de concurrencia real de PostgreSQL (el pool se mockea en los tests que lo necesitan).
-- La cobertura de código no se mide (no hay `c8`/`nyc` configurado). Los tests actuales (79, contando las dos pruebas de integración MariaDB y la de protección de fixtures) apuntan a los hallazgos de seguridad encontrados y a los endpoints más sensibles, no a cobertura exhaustiva de todos los controllers/servicios.
+- La cobertura de código no se mide (no hay `c8`/`nyc` configurado). Los tests actuales (98, contando las tres pruebas de integración MariaDB y la de protección de fixtures) apuntan a los hallazgos de seguridad encontrados y a los endpoints más sensibles, no a cobertura exhaustiva de todos los controllers/servicios.
 - `settings-plans-authorization.test.js` solo prueba los roles definidos en `users.role` (`super_admin`, `admin`, `soporte`, `finanzas`, `cliente`) contra la política real ya documentada en `docs/PRODUCTION_STATUS.md` — no cubre `soporte` explícitamente en cada endpoint (no tiene acceso a ninguno de los dos módulos, se infiere del mismo mecanismo que se prueba para `finanzas`/`cliente`).
 
 ## Verificar la firma de MercadoPago manualmente (sin credenciales reales)
