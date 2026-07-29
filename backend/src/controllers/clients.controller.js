@@ -30,6 +30,7 @@ export async function create(req, res, next) {
     const client = await clientsService.createClient(req.body ?? {});
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "create",
       entityType: "cliente",
       entityId: client.id,
@@ -48,6 +49,7 @@ export async function update(req, res, next) {
     const client = await clientsService.updateClient(req.params.id, req.body ?? {});
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "editar",
       entityType: "cliente",
       entityId: client.id,
@@ -67,6 +69,7 @@ export async function remove(req, res, next) {
     await clientsService.softDeleteClient(req.params.id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "desactivar",
       entityType: "cliente",
       entityId: req.params.id,

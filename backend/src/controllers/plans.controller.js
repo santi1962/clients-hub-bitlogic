@@ -83,6 +83,7 @@ export async function create(req, res, next) {
     const plan = await plansService.createPlan(req.body);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "crear",
       entityType: "plan_hosting",
       entityId: plan.id,
@@ -122,6 +123,7 @@ export async function update(req, res, next) {
     const plan = await plansService.updatePlan(req.params.id, req.body);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "editar",
       entityType: "plan_hosting",
       entityId: plan.id,
@@ -144,6 +146,7 @@ export async function remove(req, res, next) {
     await plansService.deletePlan(req.params.id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "eliminar",
       entityType: "plan_hosting",
       entityId: req.params.id,

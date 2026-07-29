@@ -60,6 +60,7 @@ export async function createService(req, res, next) {
     const service = await hostingService.createService(req.body ?? {});
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "create",
       entityType: "servicio",
       entityId: service.id,
@@ -78,6 +79,7 @@ export async function updateService(req, res, next) {
     const service = await hostingService.updateService(req.params.id, req.body ?? {});
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "editar",
       entityType: "servicio",
       entityId: service.id,
@@ -97,6 +99,7 @@ export async function deleteService(req, res, next) {
     await hostingService.deleteService(req.params.id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "eliminar",
       entityType: "servicio",
       entityId: req.params.id,
@@ -113,6 +116,7 @@ export async function suspendService(req, res, next) {
     const service = await hostingService.suspendService(req.params.id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "suspender",
       entityType: "servicio",
       entityId: service.id,
@@ -131,6 +135,7 @@ export async function reactivateService(req, res, next) {
     const service = await hostingService.reactivateService(req.params.id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "reactivar",
       entityType: "servicio",
       entityId: service.id,
@@ -151,6 +156,7 @@ export async function changePlan(req, res, next) {
     const service = await hostingService.changeServicePlan(req.params.id, planId);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "cambiar plan",
       entityType: "servicio",
       entityId: service.id,
@@ -191,6 +197,7 @@ export async function syncHestia(req, res, next) {
     // Log the sync action
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "sincronizar",
       entityType: "servicio",
       entityId: req.params.id,
