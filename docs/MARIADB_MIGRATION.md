@@ -4,6 +4,15 @@
 
 **No cambiar `DATABASE_URL` a `mysql://` en ningún ambiente real todavía.** Solo el dominio auth/users tiene sus queries convertidas (ver más abajo) — el resto de los módulos (clientes, hosting, dominios, facturación, soporte, tareas, configuración, backups, scheduler) siguen escritos en sintaxis PostgreSQL y romperían contra MariaDB.
 
+## Empezá por acá (si estás retomando esto, en esta máquina o en otra)
+
+- **Rama:** `migration/mariadb`, pusheada a `origin` (no mergeada a `master`, sin PR abierto). `git fetch && git checkout migration/mariadb` para tenerla.
+- **Último commit de esta rama a la fecha:** `246260f` — "docs: document MariaDB schema baseline" (Fase DB-2.5).
+- **Qué está hecho:** capa de compatibilidad dual-driver (`pg`/`mysql2`) en `backend/src/db/pool.js`, schema MariaDB consolidado y con collation normalizada (`backend/db/schema.sql`, validado contra MariaDB 11.4 real), y el dominio **auth/users** con sus queries convertidas y probadas contra ambos motores.
+- **Qué falta:** todo lo demás (Fase DB-3B en adelante) — convertir el resto de los módulos uno por uno. Recomendación ya registrada: `clients` primero, después `hosting`/`plans`, dejando facturación/`billing` para el final (es el módulo con más incompatibilidades: `UPDATE...RETURNING`, `FILTER`, `generate_series`).
+- **Antes de tocar código nuevo:** correr `cd backend && npm test` (Postgres) y, si hay una MariaDB descartable a mano, `MARIADB_TEST_URL=mysql://... npm test` (ver la sección "Cómo probar contra ambos motores" más abajo) — para confirmar que se arranca desde un estado verde.
+- El resto de este documento es la referencia técnica completa (decisiones de conversión, política de UUID, collation, cómo levantar una MariaDB de prueba, riesgos). Esta sección de arriba es solo el punto de entrada rápido.
+
 ## Fases completadas
 
 | Fase | Qué hizo | Estado |
