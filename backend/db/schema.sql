@@ -190,7 +190,11 @@ CREATE INDEX IF NOT EXISTS idx_clients_company ON clients (company(191));
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS hosting_plans (
-  id              CHAR(36)       NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): el único INSERT (plans.service.js createPlan;
+  -- hosting.service.js createPlan también, aunque inalcanzable por HTTP hoy
+  -- por el orden de montaje de rutas en app.js) ya envía id explícito
+  -- (randomUUID() de Node) desde la Fase DB-3C.
+  id              CHAR(36)       NOT NULL PRIMARY KEY,
   name            TEXT           NOT NULL,
   description     TEXT,
   storage_gb      INT            NOT NULL,
@@ -211,7 +215,9 @@ CREATE INDEX IF NOT EXISTS idx_hosting_plans_status ON hosting_plans (status(191
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS hosting_services (
-  id                CHAR(36)       NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): el único INSERT (hosting.service.js createService)
+  -- ya envía id explícito (randomUUID() de Node) desde la Fase DB-3C.
+  id                CHAR(36)       NOT NULL PRIMARY KEY,
   client_id         CHAR(36)       NOT NULL,
   plan_id           CHAR(36)       NOT NULL,
   domain            VARCHAR(255)   NOT NULL,             -- TEXT+UNIQUE en Postgres -> acotado
