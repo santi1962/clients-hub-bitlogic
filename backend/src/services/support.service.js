@@ -2,6 +2,7 @@
  * Support Tickets Service
  * Handles ticket creation, listing, updating, and messaging.
  */
+import { randomUUID } from "crypto";
 import pool from "../db/pool.js";
 import { getIo } from "../socket.js";
 import { sendTelegramMessage } from "./telegram.service.js";
@@ -11,6 +12,15 @@ function ticketNotFound() {
   e.status = 404;
   return e;
 }
+
+const TICKET_SELECT = `
+  t.id, t.ticket_number, t.client_id, t.hosting_service_id, t.subject,
+  t.priority, t.status, t.assigned_to, t.created_by,
+  t.last_message_at, t.resolved_at, t.closed_at, t.created_at, t.updated_at,
+  c.name as client_name, c.company as client_company,
+  hs.domain as service_domain,
+  u.name as assigned_user_name
+`;
 
 export const supportService = {
   /**
@@ -26,95 +36,61 @@ export const supportService = {
     page = 1,
     limit = 20,
   } = {}) {
-    let query = `
-      SELECT
-        t.id, t.ticket_number, t.client_id, t.hosting_service_id, t.subject,
-        t.priority, t.status, t.assigned_to, t.created_by,
-        t.last_message_at, t.resolved_at, t.closed_at, t.created_at, t.updated_at,
-        c.name as client_name, c.company as client_company,
-        hs.domain as service_domain,
-        u.name as assigned_user_name
-      FROM support_tickets t
-      LEFT JOIN clients c ON t.client_id = c.id
-      LEFT JOIN hosting_services hs ON t.hosting_service_id = hs.id
-      LEFT JOIN users u ON t.assigned_to = u.id
-      WHERE 1=1
-    `;
+    const conditions = [];
     const params = [];
 
     if (clientId) {
-      query += ` AND t.client_id = $${params.length + 1}`;
+      conditions.push(`t.client_id = ?`);
       params.push(clientId);
     }
-
     if (serviceId) {
-      query += ` AND t.hosting_service_id = $${params.length + 1}`;
+      conditions.push(`t.hosting_service_id = ?`);
       params.push(serviceId);
     }
-
     if (status) {
-      query += ` AND t.status = $${params.length + 1}`;
+      conditions.push(`t.status = ?`);
       params.push(status);
     }
-
     if (priority) {
-      query += ` AND t.priority = $${params.length + 1}`;
+      conditions.push(`t.priority = ?`);
       params.push(priority);
     }
-
     if (assignedTo) {
-      query += ` AND t.assigned_to = $${params.length + 1}`;
+      conditions.push(`t.assigned_to = ?`);
       params.push(assignedTo);
     }
-
     if (search) {
-      query += ` AND (t.ticket_number ILIKE $${params.length + 1} OR t.subject ILIKE $${params.length + 1})`;
-      const searchTerm = `%${search}%`;
-      params.push(searchTerm, searchTerm);
+      // LOWER()/LIKE en vez de ILIKE (no existe en MariaDB) — mismo criterio
+      // que el resto de los dominios ya convertidos.
+      conditions.push(`(LOWER(t.ticket_number) LIKE LOWER(?) OR LOWER(t.subject) LIKE LOWER(?))`);
+      params.push(`%${search}%`, `%${search}%`);
     }
 
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const offset = (page - 1) * limit;
-    query += ` ORDER BY t.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(limit, offset);
 
-    const result = await pool.query(query, params);
+    const [dataResult, countResult] = await Promise.all([
+      pool.query(
+        `SELECT ${TICKET_SELECT}
+         FROM support_tickets t
+         LEFT JOIN clients c ON t.client_id = c.id
+         LEFT JOIN hosting_services hs ON t.hosting_service_id = hs.id
+         LEFT JOIN users u ON t.assigned_to = u.id
+         ${where}
+         ORDER BY t.created_at DESC
+         LIMIT ? OFFSET ?`,
+        [...params, limit, offset],
+      ),
+      // AS count explícito: Postgres nombra "count" a SELECT COUNT(*) por
+      // default, MariaDB la nombra "COUNT(*)" literal (mismo hallazgo que
+      // en todos los dominios convertidos hasta ahora).
+      pool.query(`SELECT COUNT(*) AS count FROM support_tickets t ${where}`, params),
+    ]);
 
-    // Contar total
-    let countQuery = `SELECT COUNT(*) FROM support_tickets t WHERE 1=1`;
-    const countParams = [];
-    let paramIndex = 1;
-
-    if (clientId) {
-      countQuery += ` AND t.client_id = $${paramIndex++}`;
-      countParams.push(clientId);
-    }
-    if (serviceId) {
-      countQuery += ` AND t.hosting_service_id = $${paramIndex++}`;
-      countParams.push(serviceId);
-    }
-    if (status) {
-      countQuery += ` AND t.status = $${paramIndex++}`;
-      countParams.push(status);
-    }
-    if (priority) {
-      countQuery += ` AND t.priority = $${paramIndex++}`;
-      countParams.push(priority);
-    }
-    if (assignedTo) {
-      countQuery += ` AND t.assigned_to = $${paramIndex++}`;
-      countParams.push(assignedTo);
-    }
-    if (search) {
-      countQuery += ` AND (t.ticket_number ILIKE $${paramIndex++} OR t.subject ILIKE $${paramIndex++})`;
-      const searchTerm = `%${search}%`;
-      countParams.push(searchTerm, searchTerm);
-    }
-
-    const countResult = await pool.query(countQuery, countParams);
     const total = parseInt(countResult.rows[0].count, 10);
 
     return {
-      data: result.rows,
+      data: dataResult.rows,
       page,
       limit,
       total,
@@ -126,62 +102,61 @@ export const supportService = {
    * Get single ticket with messages
    */
   async getTicket(id) {
-    const ticketQuery = `
-      SELECT
-        t.id, t.ticket_number, t.client_id, t.hosting_service_id, t.subject,
-        t.priority, t.status, t.assigned_to, t.created_by,
-        t.last_message_at, t.resolved_at, t.closed_at, t.created_at, t.updated_at,
-        c.name as client_name, c.company as client_company,
-        hs.domain as service_domain,
-        u.name as assigned_user_name
-      FROM support_tickets t
-      LEFT JOIN clients c ON t.client_id = c.id
-      LEFT JOIN hosting_services hs ON t.hosting_service_id = hs.id
-      LEFT JOIN users u ON t.assigned_to = u.id
-      WHERE t.id = $1
-    `;
-    const ticketResult = await pool.query(ticketQuery, [id]);
+    const { rows } = await pool.query(
+      `SELECT ${TICKET_SELECT}
+       FROM support_tickets t
+       LEFT JOIN clients c ON t.client_id = c.id
+       LEFT JOIN hosting_services hs ON t.hosting_service_id = hs.id
+       LEFT JOIN users u ON t.assigned_to = u.id
+       WHERE t.id = ?`,
+      [id],
+    );
 
-    if (ticketResult.rows.length === 0) {
+    if (rows.length === 0) {
       throw ticketNotFound();
     }
 
-    const ticket = ticketResult.rows[0];
+    const ticket = rows[0];
 
-    // Get messages
-    const messagesQuery = `
-      SELECT * FROM support_ticket_messages
-      WHERE ticket_id = $1
-      ORDER BY created_at ASC
-    `;
-    const messagesResult = await pool.query(messagesQuery, [id]);
+    const { rows: messages } = await pool.query(
+      `SELECT * FROM support_ticket_messages WHERE ticket_id = ? ORDER BY created_at ASC`,
+      [id],
+    );
 
     return {
       ...ticket,
-      messages: messagesResult.rows,
+      messages,
     };
   },
 
   /**
-   * Create ticket (ticket_number auto-generated by DB)
+   * Create ticket (ticket_number auto-generado por la DB en ambos motores:
+   * DEFAULT generate_ticket_number() en Postgres, trigger
+   * trg_support_tickets_number en MariaDB — no se envía nunca desde acá,
+   * política ya vigente antes de esta fase, sin cambios).
    */
   async createTicket({ clientId, serviceId, subject, priority = "normal", createdBy }) {
-    const query = `
-      INSERT INTO support_tickets
-        (client_id, hosting_service_id, subject, priority, created_by)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING *
-    `;
+    // id generado en la app (UUID v4, crypto.randomUUID) — misma política
+    // que el resto de los dominios convertidos. INSERT sin RETURNING +
+    // SELECT posterior por id, para además traer ticket_number/created_at
+    // ya generados por la DB.
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO support_tickets (id, client_id, hosting_service_id, subject, priority, created_by)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [id, clientId, serviceId || null, subject, priority, createdBy || null],
+    );
+    const { rows } = await pool.query(
+      `SELECT ${TICKET_SELECT}
+       FROM support_tickets t
+       LEFT JOIN clients c ON t.client_id = c.id
+       LEFT JOIN hosting_services hs ON t.hosting_service_id = hs.id
+       LEFT JOIN users u ON t.assigned_to = u.id
+       WHERE t.id = ?`,
+      [id],
+    );
+    const ticket = rows[0];
 
-    const result = await pool.query(query, [
-      clientId,
-      serviceId || null,
-      subject,
-      priority,
-      createdBy || null,
-    ]);
-
-    const ticket = result.rows[0];
     sendTelegramMessage(
       `🎫 <b>Ticket nuevo</b> #${ticket.ticket_number}\n${subject}\nPrioridad: ${priority}`,
     );
@@ -196,11 +171,10 @@ export const supportService = {
     const allowed = ["subject", "priority", "status", "assigned_to"];
     const updates = [];
     const values = [];
-    let paramIndex = 1;
 
     Object.entries(patch).forEach(([key, value]) => {
       if (allowed.includes(key)) {
-        updates.push(`${key} = $${paramIndex++}`);
+        updates.push(`${key} = ?`);
         values.push(value);
       }
     });
@@ -209,18 +183,18 @@ export const supportService = {
       return this.getTicket(id);
     }
 
+    // UPDATE...RETURNING -> UPDATE + SELECT posterior. El 404 se decide por
+    // el SELECT, no por rowCount: un PATCH que reenvía el mismo valor que
+    // ya tenía la fila (ej. reasignar el mismo assigned_to) da rowCount=0 en
+    // MariaDB (sin CLIENT_FOUND_ROWS) aunque el ticket exista — mismo
+    // patrón que clients/hosting_plans/hosting_services/domains.
     values.push(id);
-    const query = `
-      UPDATE support_tickets
-      SET ${updates.join(", ")}
-      WHERE id = $${paramIndex}
-      RETURNING *
-    `;
+    await pool.query(`UPDATE support_tickets SET ${updates.join(", ")} WHERE id = ?`, values);
 
-    const result = await pool.query(query, values);
-    if (result.rows.length === 0) throw ticketNotFound();
+    const { rows } = await pool.query(`SELECT id FROM support_tickets WHERE id = ?`, [id]);
+    if (rows.length === 0) throw ticketNotFound();
 
-    return result.rows[0];
+    return this.getTicket(id);
   },
 
   /**
@@ -241,38 +215,42 @@ export const supportService = {
     try {
       await client.query("BEGIN");
 
-      // Insert message
-      const msgQuery = `
-        INSERT INTO support_ticket_messages
-          (ticket_id, sender_user_id, sender_name, sender_role, message, is_internal,
-           attachment_url, attachment_type, attachment_name)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING *
-      `;
-      const msgResult = await client.query(msgQuery, [
-        ticketId,
-        senderUserId || null,
-        senderName,
-        senderRole,
-        message || null,
-        isInternal,
-        attachmentUrl,
-        attachmentType,
-        attachmentName,
-      ]);
+      // id generado en la app — mismo criterio que el resto de los
+      // dominios. INSERT sin RETURNING + SELECT posterior, todo en la
+      // misma conexión/transacción para no perder atomicidad.
+      const id = randomUUID();
+      await client.query(
+        `INSERT INTO support_ticket_messages
+           (id, ticket_id, sender_user_id, sender_name, sender_role, message, is_internal,
+            attachment_url, attachment_type, attachment_name)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          ticketId,
+          senderUserId || null,
+          senderName,
+          senderRole,
+          message || null,
+          isInternal,
+          attachmentUrl,
+          attachmentType,
+          attachmentName,
+        ],
+      );
+      const { rows } = await client.query(
+        `SELECT * FROM support_ticket_messages WHERE id = ?`,
+        [id],
+      );
+      const msg = rows[0];
 
       // Update ticket last_message_at
-      const updateQuery = `
-        UPDATE support_tickets
-        SET last_message_at = now()
-        WHERE id = $1
-      `;
-      await client.query(updateQuery, [ticketId]);
+      await client.query(`UPDATE support_tickets SET last_message_at = now() WHERE id = ?`, [ticketId]);
 
       await client.query("COMMIT");
 
-      const msg = msgResult.rows[0];
-      // Emitir en tiempo real a todos los que están viendo este ticket
+      // Efectos secundarios SIEMPRE después del COMMIT: si el mensaje ya
+      // quedó persistido, un fallo de Socket.IO/Telegram no debe revertir
+      // ni reintentar el insert (política ya vigente, conservada).
       getIo()?.to(`ticket:${ticketId}`).emit("ticket:message", msg);
 
       // Avisar a staff por Telegram solo cuando el mensaje viene del cliente
@@ -295,55 +273,41 @@ export const supportService = {
    * Assign ticket
    */
   async assignTicket(id, assignedTo) {
-    const query = `
-      UPDATE support_tickets
-      SET assigned_to = $1
-      WHERE id = $2
-      RETURNING *
-    `;
-    const result = await pool.query(query, [assignedTo, id]);
-    if (result.rows.length === 0) throw ticketNotFound();
-    return result.rows[0];
+    await pool.query(`UPDATE support_tickets SET assigned_to = ? WHERE id = ?`, [assignedTo, id]);
+    const { rows } = await pool.query(`SELECT id FROM support_tickets WHERE id = ?`, [id]);
+    if (rows.length === 0) throw ticketNotFound();
+    return this.getTicket(id);
   },
 
   /**
    * Resolve ticket
    */
   async resolveTicket(id) {
-    const query = `
-      UPDATE support_tickets
-      SET status = 'resolved', resolved_at = now()
-      WHERE id = $1
-      RETURNING *
-    `;
-    const result = await pool.query(query, [id]);
-    if (result.rows.length === 0) throw ticketNotFound();
-    return result.rows[0];
+    await pool.query(`UPDATE support_tickets SET status = 'resolved', resolved_at = now() WHERE id = ?`, [id]);
+    const { rows } = await pool.query(`SELECT id FROM support_tickets WHERE id = ?`, [id]);
+    if (rows.length === 0) throw ticketNotFound();
+    return this.getTicket(id);
   },
 
   /**
    * Close ticket
    */
   async closeTicket(id) {
-    const query = `
-      UPDATE support_tickets
-      SET status = 'closed', closed_at = now()
-      WHERE id = $1
-      RETURNING *
-    `;
-    const result = await pool.query(query, [id]);
-    if (result.rows.length === 0) throw ticketNotFound();
-    return result.rows[0];
+    await pool.query(`UPDATE support_tickets SET status = 'closed', closed_at = now() WHERE id = ?`, [id]);
+    const { rows } = await pool.query(`SELECT id FROM support_tickets WHERE id = ?`, [id]);
+    if (rows.length === 0) throw ticketNotFound();
+    return this.getTicket(id);
   },
 
   /**
    * Delete ticket and all its messages
    */
   async deleteTicket(id) {
-    const result = await pool.query(
-      "DELETE FROM support_tickets WHERE id = $1 RETURNING id",
-      [id],
-    );
-    if (result.rows.length === 0) throw ticketNotFound();
+    // Hard delete real: los mensajes se borran en cascada por la FK
+    // support_ticket_messages_ticket_id_fkey ON DELETE CASCADE (sin cambios
+    // de esta fase). rowCount es seguro para un DELETE (sin ambigüedad
+    // "matched pero sin cambio de valor").
+    const { rowCount } = await pool.query(`DELETE FROM support_tickets WHERE id = ?`, [id]);
+    if (rowCount === 0) throw ticketNotFound();
   },
 };

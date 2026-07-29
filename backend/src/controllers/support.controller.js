@@ -86,6 +86,7 @@ export async function createTicket(req, res, next) {
 
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "crear",
       entityType: "ticket",
       entityId: ticket.id,
@@ -159,6 +160,7 @@ export async function addMessage(req, res, next) {
 
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "responder",
       entityType: "ticket",
       entityId: id,
@@ -194,6 +196,7 @@ export async function resolveTicket(req, res, next) {
     const ticket = await supportService.resolveTicket(id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "resolver",
       entityType: "ticket",
       entityId: id,
@@ -214,6 +217,7 @@ export async function closeTicket(req, res, next) {
     const ticket = await supportService.closeTicket(id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "cerrar",
       entityType: "ticket",
       entityId: id,
@@ -234,6 +238,7 @@ export async function deleteTicket(req, res, next) {
     await supportService.deleteTicket(id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "eliminar",
       entityType: "ticket",
       entityId: id,

@@ -147,7 +147,7 @@ router.get("/uploads/tickets/:filename", authRequired, requireClientId, async (r
     const { rows } = await (await import("../db/pool.js")).default.query(
       `SELECT t.client_id FROM support_ticket_messages m
        JOIN support_tickets t ON m.ticket_id = t.id
-       WHERE m.attachment_url = $1 LIMIT 1`,
+       WHERE m.attachment_url = ? LIMIT 1`,
       [`/uploads/tickets/${filename}`],
     );
 
