@@ -1,9 +1,14 @@
 import multer from "multer";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const ticketUploadsDir = path.join(__dirname, "../../uploads/tickets");
+// Igual patrón que settings.routes.js (uploads/logos): el directorio no está
+// versionado y no existe en un checkout nuevo — sin esto, multer.diskStorage
+// falla con ENOENT en el primer upload real.
+if (!fs.existsSync(ticketUploadsDir)) fs.mkdirSync(ticketUploadsDir, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, ticketUploadsDir),
