@@ -35,6 +35,7 @@ export async function createDomain(req, res, next) {
     const domain = await domainsService.createDomain(req.body);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "crear",
       entityType: "dominio",
       entityId: domain.id,
@@ -53,6 +54,7 @@ export async function updateDomain(req, res, next) {
     const domain = await domainsService.updateDomain(req.params.id, req.body);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "editar",
       entityType: "dominio",
       entityId: domain.id,
@@ -72,6 +74,7 @@ export async function deleteDomain(req, res, next) {
     await domainsService.softDeleteDomain(req.params.id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "cancelar",
       entityType: "dominio",
       entityId: req.params.id,
@@ -91,6 +94,7 @@ export async function renewDomain(req, res, next) {
     const domain = await domainsService.renewDomain(req.params.id, req.body);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "renovar",
       entityType: "dominio",
       entityId: domain.id,

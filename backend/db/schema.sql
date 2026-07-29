@@ -324,6 +324,13 @@ CREATE INDEX IF NOT EXISTS idx_payments_paid_at    ON payments (paid_at);
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS domains (
+  -- DEFAULT (UUID()) se mantiene a propósito (Fase DB-3E): a diferencia de
+  -- clients/hosting_plans/hosting_services/audit_logs,
+  -- seeds/004_domains_seed.js (seed DEMO, fuera de alcance de esta fase)
+  -- inserta dominios sin id explícito y depende de este default — mismo
+  -- caso que users.id en la Fase DB-3A. domains.service.js createDomain (el
+  -- flujo real de la app) ya genera id explícito con crypto.randomUUID().
+  -- No se retira el default hasta que ese seed demo se actualice o elimine.
   id                  CHAR(36)      NOT NULL DEFAULT (UUID()) PRIMARY KEY,
   client_id           CHAR(36)      NOT NULL,
   hosting_service_id  CHAR(36),
