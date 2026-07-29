@@ -2,16 +2,46 @@
 
 **Decisión definitiva del usuario:** el motor productivo de Bitlogic Client Hub pasa a ser MariaDB/MySQL (el VPS real usa MariaDB 11.4.10 vía HestiaCP). PostgreSQL sigue siendo el motor **activo hoy** — esta migración se hace de a un dominio funcional por vez, sin apagar Postgres hasta que todos los módulos y los datos reales estén validados contra MariaDB.
 
-**No cambiar `DATABASE_URL` a `mysql://` en ningún ambiente real todavía.** Los dominios auth/users, **clients** y **hosting_plans/hosting_services** tienen sus queries convertidas (ver más abajo) — el resto de los módulos (dominios, facturación, soporte, tareas, configuración, backups, scheduler, `audit_logs`) siguen escritos en sintaxis PostgreSQL y romperían (o fallarían silenciosamente, ver `audit.service.js` más abajo) contra MariaDB.
+**No cambiar `DATABASE_URL` a `mysql://` en ningún ambiente real todavía.** Los dominios auth/users, **clients**, **hosting_plans/hosting_services** y **`audit_logs`** tienen sus queries convertidas (ver más abajo) — el resto de los módulos (domains, facturación, soporte, tareas, configuración, backups, scheduler) siguen escritos en sintaxis PostgreSQL y romperían contra MariaDB.
 
 ## Empezá por acá (si estás retomando esto, en esta máquina o en otra)
 
 - **Rama:** el trabajo de migración vive mergeado en `main` (el histórico `migration/mariadb` de `origin` quedó contenido enteramente dentro de `main` desde el merge `70fec99`, que además trajo hardening/security/scheduler). Trabajar directo sobre `main`.
-- **Última fase cerrada:** DB-3C (dominios **hosting_plans** y **hosting_services** convertidos).
-- **Qué está hecho:** capa de compatibilidad dual-driver (`pg`/`mysql2`) en `backend/src/db/pool.js`, schema MariaDB consolidado y con collation normalizada (`backend/db/schema.sql`, validado contra MariaDB 11.4 real), y los dominios **auth/users**, **clients** y **hosting_plans/hosting_services** con sus queries convertidas y probadas contra ambos motores.
-- **Qué falta:** todo lo demás (Fase DB-3D en adelante) — convertir el resto de los módulos uno por uno. `domains` es candidato natural (ya depende de `clients`/`hosting_services`, ambos ya convertidos), dejando facturación/`billing` para el final (es el módulo con más incompatibilidades: `UPDATE...RETURNING`, `FILTER`, `generate_series`).
-- **Antes de tocar código nuevo:** correr `cd backend && npm test` (Postgres) y, si hay una MariaDB descartable a mano, `MARIADB_TEST_URL=mysql://... npm test` (ver la sección "Cómo probar contra ambos motores" más abajo) — para confirmar que se arranca desde un estado verde.
+- **Última fase cerrada:** DB-3D (subsistema transversal **`audit_logs`** convertido, y línea base de tests aclarada — ver "Línea base de tests" más abajo).
+- **Qué está hecho:** capa de compatibilidad dual-driver (`pg`/`mysql2`) en `backend/src/db/pool.js`, schema MariaDB consolidado y con collation normalizada (`backend/db/schema.sql`, validado contra MariaDB 11.4 real), y los dominios **auth/users**, **clients**, **hosting_plans/hosting_services** y **`audit_logs`** con sus queries convertidas y probadas contra ambos motores. El punto ciego de auditoría contra MariaDB (documentado en DB-3B/DB-3C) ya no existe.
+- **Qué falta:** todo lo demás (Fase DB-3E en adelante) — convertir el resto de los módulos uno por uno. `domains` sigue siendo el candidato natural (ya depende de `clients`/`hosting_services`, ambos ya convertidos), dejando facturación/`billing` para el final (es el módulo con más incompatibilidades: `UPDATE...RETURNING`, `FILTER`, `generate_series`).
+- **Antes de tocar código nuevo:** correr `cd backend && npm test` (Postgres) y, si hay una MariaDB descartable a mano, `MARIADB_TEST_URL=mysql://... npm test` (ver la sección "Cómo probar contra ambos motores" más abajo) — para confirmar que se arranca desde un estado verde. **Ojo:** en un checkout nuevo, sin `backend/.env` con credenciales de un Postgres local real, 3 tests van a fallar siempre — ver "Línea base de tests" más abajo, no es una regresión.
 - El resto de este documento es la referencia técnica completa (decisiones de conversión, política de UUID, collation, cómo levantar una MariaDB de prueba, riesgos). Esta sección de arriba es solo el punto de entrada rápido.
+
+## Línea base de tests (aclarado en la Fase DB-3D)
+
+Un reporte previo de esta migración citó "PostgreSQL: 90/98 pass, MariaDB: 93/98 pass, mismos 5 fallos preexistentes" — aritméticamente correcto pero ambiguo: no explicitaba que la diferencia entre 90 y 98 no eran todo fallos. Desglose real de aquel momento:
+
+| Motor | tests | pass | fail | skip |
+|---|---|---|---|---|
+| Postgres (sin `MARIADB_TEST_URL`) | 98 | 90 | 5 | 3 |
+| MariaDB (con `MARIADB_TEST_URL`) | 98 | 93 | 5 | 0 |
+
+Los 3 tests que le faltaban a la cuenta de Postgres para llegar a 98 **no eran fallos** — eran los 3 tests de integración MariaDB (`auth-mariadb`, `clients-mariadb`, `hosting-mariadb`) saltados por `skip` al no haber `MARIADB_TEST_URL`. La Fase DB-3D investigó los 5 fallos uno por uno (nunca asumidos, siempre confirmados con logs reales o instrumentación temporal) y corrigió los que eran corregibles sin ampliar alcance:
+
+| Test | Causa confirmada | Resolución |
+|---|---|---|
+| `uploads: tipo válido (imagen png) es aceptado` | `backend/uploads/tickets/` no existe en un checkout nuevo (no versionado, nadie lo creaba) — multer fallaba con `ENOENT` al escribir a disco, **no** por el `fileFilter` (confirmado instrumentando `fileFilter` con un log temporal: el mimetype siempre pasaba la validación). | **Corregido**: `ticketUpload.js` ahora crea el directorio si no existe, mismo patrón que `settings.routes.js` ya usa para `uploads/logos`. |
+| `uploads: nombre malicioso...` | Misma causa exacta. | **Corregido**, mismo fix. |
+| `health: /api/health/ready responde 200...` | `503` en vez de `200` — este test (a diferencia del resto de la suite, casi toda mockeada) hace una query real de `SELECT 1` contra Postgres. No hay `backend/.env` en este checkout; hay un Postgres 18 real corriendo como servicio local (puerto 5432), pero sin credenciales configuradas. | **No corregido** — dependiente del entorno, requiere credenciales reales que no están disponibles ni corresponde adivinar. |
+| `health: /api/health (alias histórico)...` | Mismo endpoint, misma causa. | **No corregido**, mismo motivo. |
+| `settings: PUT /company con rol super_admin...` | `500` con `"SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string"` (confirmado en el log real) — este test mockea solo la query de `audit_logs`, pero deja pasar la de `settings.service.js` al pool real. Mismo root cause que los dos de arriba. | **No corregido**, mismo motivo. |
+
+**Ninguno de los 5 era una regresión de DB-3A/DB-3B/DB-3C** — confirmado por comparación contra el estado previo a esas fases (`git stash` durante DB-3B: los mismos 5 fallos ya existían en `main` sin ninguno de los cambios de esta migración).
+
+**Línea base actual (tras DB-3D):**
+
+| Motor | tests | pass | fail | skip |
+|---|---|---|---|---|
+| Postgres | 111 | 104 | **3** | 4 |
+| MariaDB | 111 | 108 | **3** | 0 |
+
+Los 3 fallos restantes (los dos de `health` + el de `settings`) son **dependientes del entorno** (falta un `backend/.env` con credenciales reales de un Postgres local) y se consideran la línea base esperada de un checkout nuevo sin ese archivo — no bloquean ninguna fase futura de esta migración.
 
 ## Fases completadas
 
@@ -22,7 +52,8 @@
 | DB-2.5 | Normalizó la collation de **todo** `db/schema.sql` a `utf8mb4_unicode_520_ci` (la del VPS real), creó `backend/scripts/apply-mariadb-schema.mjs` (runner reproducible del schema), validó todo contra MariaDB **11.4.12** real (Docker, no 10.4), corrigió la idempotencia de los triggers, y blindó estructuralmente los fixtures de test | ✅ |
 | DB-3B | Convirtió el dominio **clients** (única tabla dueña: `clients`) para funcionar contra ambos motores, retiró el `DEFAULT (UUID())` de `clients.id`, y documentó un patrón nuevo (no usado en DB-3A): decidir 404 por un SELECT posterior en vez de por el `rowCount` de la UPDATE — ver "UPDATE/DELETE sin RETURNING: por qué no alcanza con rowCount" más abajo | ✅ |
 | DB-3C | Convirtió `hosting_plans` (`plans.service.js`, dueño real vía HTTP, y las funciones equivalentes — inalcanzables por HTTP, ver hallazgo de ruteo más abajo — de `hosting.service.js`) y `hosting_services` (`hosting.service.js`), retiró `DEFAULT (UUID())` de ambos `id`, refinó cuándo el patrón "SELECT en vez de rowCount" de DB-3B hace falta y cuándo no (`suspendService`/`reactivateService` son seguros con rowCount; `updateService`/`updatePlan`/`changeServicePlan` no) | ✅ |
-| DB-3D en adelante | Resto de los módulos (domains, facturación, soporte, tareas, configuración, backups, scheduler, `audit_logs`) | ⏳ pendiente |
+| DB-3D | Convirtió el subsistema transversal **`audit_logs`** (`audit.service.js`), retiró `DEFAULT (UUID())` de `audit_logs.id`, arregló un bug preexistente de doble-parseo de JSON en `getLogById`, reemplazó el `console.error` crudo por el logger estructurado (+ `requestId`, propagado desde `clients`/`plans`/`hosting.controller.js`), y aclaró la línea base real de la suite de tests (ver arriba) — el punto ciego de auditoría contra MariaDB desapareció | ✅ |
+| DB-3E en adelante | Resto de los módulos (domains, facturación, soporte, tareas, configuración, backups, scheduler) | ⏳ pendiente |
 
 ## Cómo se elige el motor
 
@@ -82,6 +113,14 @@ Tres incompatibilidades nuevas que no habían aparecido en auth/users (ese domin
 - **`FILTER (WHERE ...)`** sobre una función de agregado (`COUNT(hs.id) FILTER (WHERE ...)`, `MIN(hs.next_due_date) FILTER (WHERE ...)`) es sintaxis exclusiva de Postgres. Se reemplaza por `COUNT(CASE WHEN ... THEN hs.id END)` / `MIN(CASE WHEN ... THEN hs.next_due_date END)` — estándar SQL, funciona igual en ambos motores.
 - **`SELECT COUNT(*) FROM ...` sin alias**: Postgres nombra la columna resultante `count` por default; MariaDB la nombra `COUNT(*)` literal. Cualquier código que lea `rows[0].count` (como `listClients`) recibía `undefined` contra MariaDB sin un alias explícito. Se agregó `AS count` a la query. **Cualquier `SELECT COUNT(*)` sin alias que se convierta en un módulo futuro tiene este mismo bug latente** — vale la pena revisarlos todos cuando les toque su fase (`dashboard.service.js`, `audit.service.js`, `billing.service.js`, `hosting.service.js`, etc. todavía lo tienen sin alias, pero no se tocaron por estar fuera de alcance de DB-3B).
 
+### `audit_logs`: JSON, política de fallo, y requestId (Fase DB-3D)
+
+- **Bug preexistente arreglado**: `getLogById` hacía `JSON.parse(rows[0].old_values)` incondicional. Bajo Postgres, `pg` ya deserializa `jsonb` a objeto JS automáticamente — `JSON.parse(unObjeto)` revienta con `SyntaxError` (`"[object Object]"` no es JSON válido). Nunca se había detectado porque no existía ningún test que ejercitara `getLogById` con `old_values`/`new_values` no nulos antes de esta fase. Se corrigió con el mismo parseo defensivo que ya usa `auth.service.js formatUser()` para `notifications` (DB-3A): `typeof value === "string" ? JSON.parse(value) : value`.
+- **Política de fallo — best-effort, confirmada (no cambiada)**: `logAction` ya envolvía su `INSERT` en `try/catch` sin relanzar — una acción de negocio ya completada no fallaba con 500 solo porque el registro de auditoría no se pudo escribir. Eso se conserva tal cual. Lo que sí cambió es la **visibilidad**: antes usaba `console.error` crudo; ahora usa el logger estructurado del proyecto (`createLogger`), incluyendo `requestId` cuando el caller lo pasa. `clients.controller.js`, `plans.controller.js` y `hosting.controller.js` (los 3 dominios ya convertidos) ahora pasan `requestId: req.requestId` a `logAction` — los controllers de módulos todavía-Postgres-only (billing, support, tasks, settings, domains, automation-settings) no se tocaron, así que sus llamadas siguen sin `requestId` hasta que les toque su propia fase.
+- **Nada sensible se agregó al log de error**: el objeto que se loguea ante un fallo de `INSERT` solo incluye `action`/`entityType`/`entityId`/`requestId`/el error — nunca `oldValues`/`newValues`. No se construyó ninguna sanitización nueva sobre lo que sí se persiste en la fila de `audit_logs` (`old_values`/`new_values`) — sigue siendo responsabilidad del caller no mandar secretos ahí, igual que antes de esta fase. El logger (`utils/logger.js`) ya redacta automáticamente claves como `password`/`token`/`authorization` si aparecieran en cualquier objeto que se le pase — protección preexistente, no nueva.
+- **`user_id` y la FK `ON DELETE SET NULL`**: confirmado con un test real (`audit-mariadb.test.js`) que borrar el usuario que generó una acción no borra el `audit_log` — solo pone `user_id` en `NULL`, conservando `user_name`/`user_role` (que ya se copiaban al momento de la acción, no se leen por join).
+- **Hallazgo de entorno, no de código**: al validar la política UTC (`created_at`) contra la MariaDB descartable de esta fase, la instancia inicial (mysqld portable de XAMPP, sin flags de timezone) tenía `@@global.time_zone = SYSTEM`, y el sistema operativo de esta máquina está en UTC-3 — `CURRENT_TIMESTAMP` se insertaba con un offset de 3 horas respecto a UTC real. No es un bug de `audit.service.js` ni de `pool.js` (que sigue forzando `timezone: "Z"` del lado del driver, como ya hacía desde DB-1) — es una omisión en el comando de la Opción B de este documento (a diferencia del ejemplo Docker de la Opción A, que sí pasa `--default-time-zone=+00:00`). Se corrigió reiniciando la instancia descartable con ese mismo flag. **Actualizado el comando de la Opción B más abajo** para incluirlo — cualquier instancia de MariaDB descartable levantada para probar esta migración debería forzar UTC, sea Docker o portable.
+
 ### Hallazgo de ruteo (no es de MariaDB, pero afecta qué se convirtió en DB-3C): dos implementaciones paralelas de Plan CRUD
 
 `app.js` monta `app.use("/api/hosting/plans", plansRoutes)` **antes** que `app.use("/api/hosting", hostingRoutes)`. Como Express despacha por orden de registro, **todo el tráfico HTTP a `/api/hosting/plans*` lo resuelve `plansRoutes` (`plans.service.js`)** — las rutas `GET/POST/PATCH /plans` que también define `hosting.routes.js` (montadas sobre `hosting.service.js`) quedan **inalcanzables por HTTP**, aunque el código sigue vivo (`hosting.service.js` usa su propio `getPlanById` internamente en `changeServicePlan`, y hace lookups directos a `hosting_plans` en `createService`). No es un bug introducido por esta migración — ya existía antes de DB-3C — y **no se corrigió** acá (cambiar el orden de montaje de rutas es una decisión de la app, fuera del alcance de una migración de motor de base de datos). Se convirtieron igual las queries de ambos archivos, porque ambos tocan `hosting_plans`/`hosting_services`. Si se decide arreglar el ruteo en una fase futura, revisar qué implementación (`plans.service.js` vs las funciones de plan de `hosting.service.js`) debe quedar como la única fuente de verdad — hoy difieren levemente (`plans.service.js` valida `containsPlaceholder`/precio>0 a nivel controller, `hosting.service.js` no).
@@ -121,8 +160,9 @@ Ninguna tabla nueva se tocó en la Fase DB-2.5 (solo collation) — esta tabla d
 | `users` | **Sí** — `seeds/006_client_users_seed.js` (demo) inserta sin id explícito | Actualizar/eliminar ese seed demo | Sin fecha — no bloquea producción (los seeds demo no corren contra la base real, `docs/PRODUCTION_STATUS.md`) |
 | `clients` | No (retirado en DB-3B) | — | — |
 | `hosting_plans`, `hosting_services` | No (retirado en DB-3C) | — | — |
+| `audit_logs` | No (retirado en DB-3D) | — | — |
 | `payment_notices`, `payments`, `payment_reminder_logs` | Sí | Módulo Facturación/Cobranza | Última (la más densa en incompatibilidades, ver recomendación de la Fase DB-3A) |
-| `domains` | Sí | Módulo Dominios | DB-3D (sugerida) |
+| `domains` | Sí | Módulo Dominios | DB-3E (sugerida) |
 | `support_tickets`, `support_ticket_messages` | Sí | Módulo Soporte/Tickets | A definir |
 | `internal_tasks` | Sí | Módulo Tareas | A definir |
 | `email_logs` | Sí | Módulo Email/notificaciones | A definir |
@@ -153,6 +193,8 @@ Validado contra MariaDB 11.4 real: FK de `users`/`clients`/`hosting_plans`/`host
 **Re-validado en la Fase DB-3B** (retiro del `DEFAULT (UUID())` de `clients.id`): `apply-mariadb-schema.mjs` corrido dos veces seguidas contra una MariaDB descartable confirma que el schema completo sigue siendo idempotente con ese cambio, y `SHOW CREATE TABLE clients` confirma que la columna `id` queda sin ningún `DEFAULT`. Esta vez la instancia descartable fue MariaDB **10.4** (mysqld portable de XAMPP, datadir y puerto propios — Opción B de este documento, no Docker) porque Docker Desktop no llegó a levantar el daemon en esta sesión; sigue pendiente repetir la validación contra 11.x cuando Docker esté disponible, aunque el cambio de esta fase (retirar un `DEFAULT`) no depende de ninguna feature específica de versión.
 
 **Re-validado otra vez en la Fase DB-3C** (retiro del `DEFAULT (UUID())` de `hosting_plans.id` y `hosting_services.id`): mismo procedimiento — `apply-mariadb-schema.mjs` corrido dos veces seguidas, idempotente, `SHOW CREATE TABLE hosting_plans`/`hosting_services` confirman ambas columnas `id` sin `DEFAULT`, FKs (`hosting_services_client_id_fkey`, `hosting_services_plan_id_fkey`) y `UNIQUE (domain)` intactos. Otra vez contra MariaDB 10.4 (XAMPP) — Docker Desktop siguió sin levantar el daemon en esta sesión tampoco (mismo error 500 de la API interna, ver historial de esta fase). Pendiente repetir contra 11.x cuando Docker esté disponible.
+
+**Re-validado una tercera vez en la Fase DB-3D** (retiro del `DEFAULT (UUID())` de `audit_logs.id`): mismo procedimiento — idempotente, `SHOW CREATE TABLE audit_logs` confirma la columna `id` sin `DEFAULT`, FK `audit_logs_user_id_fkey ... ON DELETE SET NULL` intacta, columnas `old_values`/`new_values` siguen con su `CHECK (json_valid(...))` autogenerado. Otra vez MariaDB 10.4 (XAMPP) — Docker Desktop devolvió el mismo error 500 interno una tercera vez en esta sesión, ahora contra la API `v1.55` (confirma que es un problema persistente de esta máquina, no transitorio entre reinicios de Docker Desktop). Esta fase además detectó y corrigió que la instancia descartable no estaba en UTC (ver "Hallazgo de entorno" arriba) — sin eso, la prueba de política UTC de `audit_logs.created_at` daba falso negativo.
 
 ### Runner reproducible del schema
 
@@ -202,13 +244,15 @@ docker stop bitlogic-mariadb-test   # --rm ya se encarga de borrar el contenedor
 
 ```bash
 mysql_install_db.exe -d "C:\ruta\a\datadir-descartable" -D
-mysqld.exe --no-defaults --datadir="C:\ruta\a\datadir-descartable" --port=13309 --bind-address=127.0.0.1 --skip-grant-tables
+mysqld.exe --no-defaults --datadir="C:\ruta\a\datadir-descartable" --port=13309 --bind-address=127.0.0.1 --skip-grant-tables --default-time-zone=+00:00
 
 cd backend
 MARIADB_TEST_URL="mysql://root:@127.0.0.1:13309/ignorado" npm test
 
 mysqladmin.exe --no-defaults -h127.0.0.1 -P13309 -uroot shutdown
 ```
+
+**`--default-time-zone=+00:00` es obligatorio, agregado en la Fase DB-3D** — sin él, `mysqld` usa `SYSTEM` (la zona horaria del sistema operativo), y si esa zona no es UTC, `CURRENT_TIMESTAMP` (usado por `created_at`/`updated_at` en todas las tablas) se inserta con el offset local en vez de UTC — rompe cualquier test que verifique la política UTC del proyecto de forma absoluta (no solo relativa). Verificar con `SELECT NOW(), UTC_TIMESTAMP(), @@global.time_zone;` antes de correr tests sensibles a fecha.
 
 Nota: la Opción B solo tiene la versión de MariaDB que traiga el XAMPP instalado (10.4 en esta máquina) — sirve para pruebas de queries/lógica, pero para validar el `schema.sql` en sí (collation, features específicas de 11.x) usar la Opción A.
 
@@ -222,7 +266,8 @@ Sin `MARIADB_TEST_URL`, `test/auth-mariadb.test.js` se saltea (no falla). Ver `d
 - **Cross-dependencias de otros módulos con `users`**: `settings.controller.js` (conteo de usuarios) y `routes/onboarding.routes.js` (existencia de usuario de portal) hacen `SELECT`/`EXISTS` directo contra `users` en sintaxis Postgres — no se tocaron (pertenecen a otros módulos), pero son la evidencia de que convertir un dominio no aísla completamente sus tablas de los demás módulos hasta que todos estén convertidos.
 - **Cross-dependencias de otros módulos con `clients`** (nuevo en DB-3B, mismo patrón que el punto anterior): `dashboard.service.js`, `billing.service.js`, `email.service.js`, `domains.service.js`, `hosting.service.js`, `support.service.js`, `tasks.service.js`, `users.service.js`, `settings.controller.js`, `app.js`, `onboarding.routes.js`, `mercadopago.routes.js`, `payment-reminders.job.js` y varios scripts hacen `JOIN`/`SELECT` contra `clients` en sintaxis Postgres — no se tocaron, fuera de alcance de esta fase.
 - **Cross-dependencias de otros módulos con `hosting_plans`/`hosting_services`** (nuevo en DB-3C, mismo patrón): `dashboard.service.js`, `billing.service.js`, `domains.service.js`, `support.service.js`, `tasks.service.js`, `email.service.js`, `settings.controller.js`, `mercadopago.routes.js`, `onboarding.routes.js`, `hestia-sync.job.js`, `delinquency-detection.job.js` — no se tocaron.
-- **`audit.service.js` (`logAction`) sigue en sintaxis Postgres (`$1..$11`, sin `INSERT ... VALUES` con `?`)** — es transversal (lo llaman casi todos los controllers, incluidos `clients.controller.js`, `plans.controller.js` y `hosting.controller.js` en cada mutación), no pertenece a ningún dominio ya convertido y no se tocó. Contra MariaDB, cada llamada a `logAction` falla con un error de sintaxis (`$1` no es un placeholder válido para `mysql2`) — pero como `logAction` envuelve su `INSERT` en `try/catch` y solo hace `console.error` sin relanzar, la request HTTP nunca se ve afectada (confirmado en `clients-mariadb.test.js` y `hosting-mariadb.test.js`: los flujos completos dan los status codes correctos aunque el audit log no se llegue a escribir). Efecto real: **contra MariaDB, ninguna acción sobre `clients`, `hosting_plans` o `hosting_services` queda auditada todavía** — sin romper nada, pero sin dejar rastro. Se resuelve cuando `audit_logs` tenga su propia fase de conversión.
+- ~~`audit.service.js` (`logAction`) sigue en sintaxis Postgres~~ — **resuelto en la Fase DB-3D**. Ver la sección dedicada más arriba.
+- **Cross-dependencias de otros módulos con `audit_logs`** (mismo patrón que `clients`/`hosting_plans`/`hosting_services`): `automation-settings.controller.js`, `billing.controller.js`, `domains.controller.js`, `settings.controller.js`, `support.controller.js`, `tasks.controller.js` llaman a `auditService.logAction(...)` — no se tocaron esos controllers (siguen sin pasar `requestId`), pero la conversión de `audit.service.js` los beneficia igual (sus INSERTs ahora también funcionan contra MariaDB, aunque el resto de las queries de esos módulos sigan en sintaxis Postgres y bloqueen igual el cambio global de `DATABASE_URL`).
 - **Ruteo:** las funciones de Plan CRUD de `hosting.service.js` (`listPlans`, `createPlan`, `updatePlan`) quedaron inalcanzables por HTTP desde antes de esta fase (ver "Hallazgo de ruteo" más arriba) — se convirtieron igual porque tocan `hosting_plans`, pero no se corrigió el ruteo, fuera de alcance.
 - **Sin manejo especial de violaciones de FK** en `deletePlan` (plan con servicios asociados) ni en `createService` (client_id/plan_id inexistente por fuera del chequeo de negocio de `planId`, o `domain` duplicado): hoy dan un `500` genérico en Postgres (`errorHandler.js` no distingue el código `23503`/`23505`), y lo mismo en MariaDB (`ER_ROW_IS_REFERENCED_2`/`ER_DUP_ENTRY`, sin mapear a un status HTTP más específico en este flujo). Confirmado como comportamiento preexistente, igual en ambos motores (`hosting-mariadb.test.js`) — no se agregó un `409`/`400` más prolijo, cambiaría el contrato de la API.
 - El mensaje de log `"PostgreSQL conectado"` en `server.js` queda fijo sin importar el driver real activo — cosmético, no funcional, pendiente de prolijidad para una fase futura.
