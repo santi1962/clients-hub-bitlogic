@@ -84,6 +84,7 @@ export async function createTask(req, res, next) {
 
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "crear",
       entityType: "tarea",
       entityId: task.id,
@@ -104,6 +105,7 @@ export async function updateTask(req, res, next) {
     const task = await tasksService.updateTask(id, req.body);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "editar",
       entityType: "tarea",
       entityId: id,
@@ -124,6 +126,7 @@ export async function deleteTask(req, res, next) {
     const task = await tasksService.deleteTask(id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "cancelar",
       entityType: "tarea",
       entityId: id,
@@ -144,6 +147,7 @@ export async function completeTask(req, res, next) {
     const task = await tasksService.completeTask(id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "completar",
       entityType: "tarea",
       entityId: id,
@@ -164,6 +168,7 @@ export async function reopenTask(req, res, next) {
     const task = await tasksService.reopenTask(id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "reabrir",
       entityType: "tarea",
       entityId: id,
