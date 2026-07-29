@@ -86,6 +86,7 @@ export async function updateCompanySettings(req, res, next) {
 
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "editar",
       entityType: "configuracion",
       entityId: "empresa",

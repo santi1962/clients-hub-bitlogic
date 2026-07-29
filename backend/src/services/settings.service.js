@@ -1,5 +1,5 @@
+import { randomUUID } from "crypto";
 import pool from "../db/pool.js";
-import { v4 as uuidv4 } from "uuid";
 
 export async function getCompanySettings() {
   const result = await pool.query("SELECT * FROM company_settings LIMIT 1");
@@ -20,27 +20,35 @@ export async function updateCompanySettings(data) {
 
     const existing = await client.query("SELECT id FROM company_settings LIMIT 1");
 
-    let result;
+    // UPDATE/INSERT...RETURNING -> SELECT posterior en la misma transacción
+    // (mismo patrón que el resto de los dominios convertidos): mysql2 no
+    // soporta RETURNING, y como acá ya conocemos el id de antemano (recién
+    // generado o el existente), alcanza con un SELECT final sin necesitar
+    // decidir nada por rowCount.
+    let id;
     if (existing.rows.length === 0) {
-      const id = uuidv4();
-      result = await client.query(
+      // id generado en la app (UUID v4, crypto.randomUUID) — misma política
+      // que el resto de los dominios convertidos, reemplaza el uuidv4() del
+      // paquete "uuid" que se usaba acá antes de esta fase.
+      id = randomUUID();
+      await client.query(
         `INSERT INTO company_settings (id, company_name, contact_email, phone, tax_id, address, currency)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING *`,
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [id, companyName, contactEmail, phone, taxId, address, currency],
       );
     } else {
-      result = await client.query(
+      id = existing.rows[0].id;
+      await client.query(
         `UPDATE company_settings
-         SET company_name = $1, contact_email = $2, phone = $3, tax_id = $4, address = $5, currency = $6, updated_at = now()
-         WHERE id = $7
-         RETURNING *`,
-        [companyName, contactEmail, phone, taxId, address, currency, existing.rows[0].id],
+         SET company_name = ?, contact_email = ?, phone = ?, tax_id = ?, address = ?, currency = ?, updated_at = now()
+         WHERE id = ?`,
+        [companyName, contactEmail, phone, taxId, address, currency, id],
       );
     }
+    const { rows } = await client.query("SELECT * FROM company_settings WHERE id = ?", [id]);
 
     await client.query("COMMIT");
-    return mapSettings(result.rows[0]);
+    return mapSettings(rows[0]);
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;
@@ -54,21 +62,29 @@ export async function updateCompanyLogo(logoUrl) {
   try {
     await client.query("BEGIN");
     const existing = await client.query("SELECT id FROM company_settings LIMIT 1");
-    let result;
+
+    // NOTA (hallazgo de esta fase, no corregido — ver docs/MARIADB_MIGRATION.md):
+    // este INSERT no envía company_name, que es NOT NULL en el schema. Si se
+    // sube un logo ANTES de haber guardado la configuración de empresa una
+    // sola vez, esto revienta por violar el NOT NULL — en los dos motores
+    // por igual. Es un bug preexistente (ya estaba así contra Postgres antes
+    // de esta fase); se preserva el comportamiento tal cual para no inventar
+    // un valor de company_name que nadie pidió.
+    let id;
     if (existing.rows.length === 0) {
-      const id = uuidv4();
-      result = await client.query(
-        `INSERT INTO company_settings (id, logo_url) VALUES ($1, $2) RETURNING *`,
+      id = randomUUID();
+      await client.query(
+        `INSERT INTO company_settings (id, logo_url) VALUES (?, ?)`,
         [id, logoUrl],
       );
     } else {
-      result = await client.query(
-        `UPDATE company_settings SET logo_url = $1, updated_at = now() WHERE id = $2 RETURNING *`,
-        [logoUrl, existing.rows[0].id],
-      );
+      id = existing.rows[0].id;
+      await client.query("UPDATE company_settings SET logo_url = ?, updated_at = now() WHERE id = ?", [logoUrl, id]);
     }
+    const { rows } = await client.query("SELECT * FROM company_settings WHERE id = ?", [id]);
+
     await client.query("COMMIT");
-    return mapSettings(result.rows[0]);
+    return mapSettings(rows[0]);
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;
