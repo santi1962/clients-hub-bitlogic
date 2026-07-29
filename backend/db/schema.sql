@@ -457,7 +457,10 @@ CREATE INDEX IF NOT EXISTS idx_support_ticket_messages_created_at ON support_tic
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS internal_tasks (
-  id                  CHAR(36)  NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): el único INSERT (tasks.service.js createTask) ya
+  -- envía id explícito (randomUUID() de Node) desde la Fase DB-3G. No hay
+  -- ningún seed de internal_tasks que dependiera del default.
+  id                  CHAR(36)  NOT NULL PRIMARY KEY,
   title               TEXT      NOT NULL,
   description         TEXT,
   status              TEXT      NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed', 'cancelled')),
