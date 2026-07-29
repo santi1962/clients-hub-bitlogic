@@ -238,9 +238,12 @@ test("plans: POST /hosting/plans con rol admin es rechazado con 403 (mutaciones 
 });
 
 test("plans: POST /hosting/plans con rol super_admin es permitido", async (t) => {
+  // createPlan hace INSERT + SELECT posterior (DB-3C, ya no INSERT...RETURNING),
+  // así que necesita una respuesta canned extra respecto a antes de esa fase.
   mockPoolQueries(t, [
     { rows: [userRow("super_admin")] },
-    { rows: [{ id: "plan-1", name: "Plan Pro", monthly_price: 5000 }] }, // createPlan insert
+    { rows: [] }, // createPlan: INSERT
+    { rows: [{ id: "plan-1", name: "Plan Pro", monthly_price: 5000 }] }, // createPlan: SELECT posterior
     { rows: [{ id: "audit-1" }] }, // audit log
   ]);
   const { baseUrl, close } = await startEphemeralServer(app);
