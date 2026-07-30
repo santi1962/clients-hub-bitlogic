@@ -561,7 +561,10 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_combined     ON audit_logs (user_id, e
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS scheduler_logs (
-  id            CHAR(36)  NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): desde la Fase DB-3I, scheduler.service.js saveLog()
+  -- ya envía id explícito (randomUUID() de Node) — mismo criterio que
+  -- company_settings.id (DB-3H).
+  id            CHAR(36)  NOT NULL PRIMARY KEY,
   job_name      TEXT      NOT NULL,
   status        TEXT      NOT NULL CHECK (status IN ('running', 'success', 'failed')),
   started_at    DATETIME  NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -583,6 +586,9 @@ CREATE INDEX IF NOT EXISTS idx_scheduler_logs_job_created  ON scheduler_logs (jo
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS automation_settings (
+  -- DEFAULT (UUID()) se mantiene (excepción documentada, igual criterio que
+  -- users.id/domains.id): el seed INSERT IGNORE de más abajo, que corre como
+  -- parte de este mismo schema.sql, no envía id explícito.
   id          CHAR(36)     NOT NULL DEFAULT (UUID()) PRIMARY KEY,
   `key`       VARCHAR(100) COLLATE utf8mb4_bin NOT NULL, -- TEXT+UNIQUE en Postgres -> acotado; `key` es palabra reservada, escapada con backticks. Comparación exacta: son claves de código (ej. 'reminder_7_days'), no texto de negocio.
   value       JSON         NOT NULL DEFAULT '{}',

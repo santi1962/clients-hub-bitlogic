@@ -4,6 +4,17 @@ import { auditService } from "./audit.service.js";
 export async function getAdminDashboard() {
   const client = await pool.connect();
   try {
+    // Cortes de fecha calculados en Node en vez de NOW()/INTERVAL/DATE_TRUNC de
+    // Postgres (sin equivalente portable directo) — se pasan como parámetros
+    // bindeados, mismo patrón que el resto de los dominios convertidos
+    // (ver domains.service.js, tasks.service.js).
+    const now = new Date();
+    const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const todayStr = now.toISOString().slice(0, 10);
+    const in7DaysStr = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+
     const [
       countsRes,
       paymentStatsRes,
@@ -25,62 +36,67 @@ export async function getAdminDashboard() {
       // Clientes y servicios activos
       client.query(`
         SELECT
-          (SELECT COUNT(*)::int FROM clients WHERE status = 'active') AS active_clients,
-          (SELECT COUNT(*)::int FROM hosting_services WHERE status = 'active') AS active_services,
-          (SELECT COUNT(*)::int FROM payments WHERE status = 'pending') AS pending_payments_count
+          (SELECT COUNT(*) FROM clients WHERE status = 'active') AS active_clients,
+          (SELECT COUNT(*) FROM hosting_services WHERE status = 'active') AS active_services,
+          (SELECT COUNT(*) FROM payments WHERE status = 'pending') AS pending_payments_count
       `),
 
-      // Estadísticas de pagos
+      // Estadísticas de pagos. DATE_TRUNC('month', x) = DATE_TRUNC('month', NOW())
+      // -> comparar año y mes por separado con EXTRACT (soportado igual en
+      // Postgres y MariaDB), evita el DATE_TRUNC exclusivo de Postgres.
       client.query(`
         SELECT
-          COALESCE(SUM(CASE WHEN status IN ('pending','overdue') THEN amount END), 0)::float AS total_debt,
+          COALESCE(SUM(CASE WHEN status IN ('pending','overdue') THEN amount END), 0) AS total_debt,
           COALESCE(SUM(CASE WHEN status = 'paid'
-            AND DATE_TRUNC('month', paid_at) = DATE_TRUNC('month', NOW())
-            THEN amount END), 0)::float AS collected_this_month
+            AND EXTRACT(YEAR FROM paid_at) = EXTRACT(YEAR FROM ?)
+            AND EXTRACT(MONTH FROM paid_at) = EXTRACT(MONTH FROM ?)
+            THEN amount END), 0) AS collected_this_month
         FROM payments
-      `),
+      `, [now, now]),
 
       // Facturación mensual estimada (servicios activos)
       client.query(`
-        SELECT COALESCE(SUM(monthly_price), 0)::float AS monthly_revenue
+        SELECT COALESCE(SUM(monthly_price), 0) AS monthly_revenue
         FROM hosting_services
         WHERE status = 'active'
       `),
 
       // Avisos vencidos
       client.query(`
-        SELECT COUNT(*)::int AS overdue_notices
+        SELECT COUNT(*) AS overdue_notices
         FROM payment_notices
         WHERE status = 'overdue'
       `),
 
       // Clientes nuevos este mes
       client.query(`
-        SELECT COUNT(*)::int AS new_clients
+        SELECT COUNT(*) AS new_clients
         FROM clients
-        WHERE DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW())
-      `),
+        WHERE EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM ?)
+          AND EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM ?)
+      `, [now, now]),
 
-      // Próximos vencimientos (30 días)
+      // Próximos vencimientos (30 días) — cutoff calculado en Node en vez de
+      // NOW() + INTERVAL '30 days'.
       client.query(`
         SELECT
-          hs.id, hs.domain, hs.next_due_date, hs.monthly_price::float, hs.status,
+          hs.id, hs.domain, hs.next_due_date, hs.monthly_price, hs.status,
           c.company AS client_company, c.id AS client_id,
           hp.name AS plan_name
         FROM hosting_services hs
         JOIN clients c ON c.id = hs.client_id
         JOIN hosting_plans hp ON hp.id = hs.plan_id
         WHERE hs.status NOT IN ('suspended', 'cancelled')
-          AND hs.next_due_date <= NOW() + INTERVAL '30 days'
+          AND hs.next_due_date <= ?
         ORDER BY hs.next_due_date ASC
         LIMIT 10
-      `),
+      `, [in30Days]),
 
       // Clientes con deuda
       client.query(`
         SELECT
           c.id, c.company, c.email,
-          SUM(p.amount)::float AS debt,
+          SUM(p.amount) AS debt,
           (SELECT MAX(p2.paid_at) FROM payments p2 WHERE p2.client_id = c.id AND p2.status = 'paid') AS last_payment_date,
           (SELECT MIN(hs.next_due_date) FROM hosting_services hs
             WHERE hs.client_id = c.id AND hs.status NOT IN ('suspended','cancelled')) AS next_due_date
@@ -95,7 +111,7 @@ export async function getAdminDashboard() {
       // Pagos recientes
       client.query(`
         SELECT
-          p.id, p.amount::float, p.status, p.method, p.paid_at,
+          p.id, p.amount, p.status, p.method, p.paid_at,
           p.period_month, p.period_year,
           c.company AS client_company,
           hs.domain AS service_domain
@@ -109,7 +125,7 @@ export async function getAdminDashboard() {
       // Avisos recientes
       client.query(`
         SELECT
-          n.id, n.notice_number, n.amount::float, n.status,
+          n.id, n.notice_number, n.amount, n.status,
           n.due_date, n.period_month, n.period_year,
           c.company AS client_company,
           hs.domain AS service_domain
@@ -123,9 +139,9 @@ export async function getAdminDashboard() {
       // Conteos de dominios
       client.query(`
         SELECT
-          (SELECT COUNT(*)::int FROM domains WHERE status = 'active') AS active_domains,
-          (SELECT COUNT(*)::int FROM domains WHERE status = 'due_soon') AS due_soon_domains,
-          (SELECT COUNT(*)::int FROM domains WHERE status = 'expired') AS expired_domains
+          (SELECT COUNT(*) FROM domains WHERE status = 'active') AS active_domains,
+          (SELECT COUNT(*) FROM domains WHERE status = 'due_soon') AS due_soon_domains,
+          (SELECT COUNT(*) FROM domains WHERE status = 'expired') AS expired_domains
       `),
 
       // Próximos dominios a vencer (30 días)
@@ -138,16 +154,16 @@ export async function getAdminDashboard() {
         JOIN clients c ON c.id = d.client_id
         LEFT JOIN hosting_services hs ON hs.id = d.hosting_service_id
         WHERE d.status != 'cancelled'
-          AND d.expiration_date <= NOW() + INTERVAL '30 days'
+          AND d.expiration_date <= ?
         ORDER BY d.expiration_date ASC
         LIMIT 8
-      `),
+      `, [in30Days]),
 
       // Conteos de tickets
       client.query(`
         SELECT
-          (SELECT COUNT(*)::int FROM support_tickets WHERE status = 'open') AS open_tickets,
-          (SELECT COUNT(*)::int FROM support_tickets WHERE status = 'open' AND priority = 'urgent') AS urgent_tickets
+          (SELECT COUNT(*) FROM support_tickets WHERE status = 'open') AS open_tickets,
+          (SELECT COUNT(*) FROM support_tickets WHERE status = 'open' AND priority = 'urgent') AS urgent_tickets
       `),
 
       // Tickets recientes
@@ -167,17 +183,18 @@ export async function getAdminDashboard() {
       // Conteos de tareas
       client.query(`
         SELECT
-          (SELECT COUNT(*)::int FROM internal_tasks WHERE status = 'pending') AS pending_tasks,
-          (SELECT COUNT(*)::int FROM internal_tasks WHERE status = 'pending' AND priority = 'urgent') AS urgent_tasks
+          (SELECT COUNT(*) FROM internal_tasks WHERE status = 'pending') AS pending_tasks,
+          (SELECT COUNT(*) FROM internal_tasks WHERE status = 'pending' AND priority = 'urgent') AS urgent_tasks
       `),
 
-      // Tareas vencidas
+      // Tareas vencidas — NOW()::date reemplazado por la fecha de hoy (sin
+      // hora) calculada en Node y bindeada como string 'YYYY-MM-DD'.
       client.query(`
-        SELECT COUNT(*)::int AS overdue_tasks
+        SELECT COUNT(*) AS overdue_tasks
         FROM internal_tasks
         WHERE status IN ('pending', 'in_progress')
-          AND due_date < NOW()::date
-      `),
+          AND due_date < ?
+      `, [todayStr]),
 
       // Próximas tareas (próximos 7 días)
       client.query(`
@@ -189,11 +206,11 @@ export async function getAdminDashboard() {
         LEFT JOIN clients c ON t.client_id = c.id
         LEFT JOIN users u ON t.assigned_to = u.id
         WHERE t.status IN ('pending', 'in_progress')
-          AND t.due_date <= NOW()::date + INTERVAL '7 days'
-          AND t.due_date >= NOW()::date
+          AND t.due_date <= ?
+          AND t.due_date >= ?
         ORDER BY t.due_date ASC
         LIMIT 10
-      `),
+      `, [in7DaysStr, todayStr]),
     ]);
 
     const counts = countsRes.rows[0];
@@ -201,20 +218,20 @@ export async function getAdminDashboard() {
     const domainsCounts = domainsCountsRes.rows[0];
 
     return {
-      activeClients: counts.active_clients,
-      activeServices: counts.active_services,
-      pendingPaymentsCount: counts.pending_payments_count,
-      monthlyRevenue: monthlyRevenueRes.rows[0].monthly_revenue,
-      collectedThisMonth: stats.collected_this_month,
-      totalDebt: stats.total_debt,
-      overdueNoticesCount: overdueNoticesRes.rows[0].overdue_notices,
-      newClientsThisMonth: newClientsRes.rows[0].new_clients,
+      activeClients: parseInt(counts.active_clients),
+      activeServices: parseInt(counts.active_services),
+      pendingPaymentsCount: parseInt(counts.pending_payments_count),
+      monthlyRevenue: parseFloat(monthlyRevenueRes.rows[0].monthly_revenue),
+      collectedThisMonth: parseFloat(stats.collected_this_month),
+      totalDebt: parseFloat(stats.total_debt),
+      overdueNoticesCount: parseInt(overdueNoticesRes.rows[0].overdue_notices),
+      newClientsThisMonth: parseInt(newClientsRes.rows[0].new_clients),
 
       upcomingServices: upcomingServicesRes.rows.map((s) => ({
         id: s.id,
         domain: s.domain,
         nextDueDate: s.next_due_date,
-        monthlyPrice: s.monthly_price,
+        monthlyPrice: parseFloat(s.monthly_price),
         status: s.status,
         clientCompany: s.client_company,
         clientId: s.client_id,
@@ -225,14 +242,14 @@ export async function getAdminDashboard() {
         id: c.id,
         company: c.company,
         email: c.email,
-        debt: c.debt,
+        debt: parseFloat(c.debt),
         lastPaymentDate: c.last_payment_date ?? null,
         nextDueDate: c.next_due_date ?? null,
       })),
 
       recentPayments: recentPaymentsRes.rows.map((p) => ({
         id: p.id,
-        amount: p.amount,
+        amount: parseFloat(p.amount),
         status: p.status,
         method: p.method,
         paidAt: p.paid_at ?? null,
@@ -245,7 +262,7 @@ export async function getAdminDashboard() {
       recentNotices: recentNoticesRes.rows.map((n) => ({
         id: n.id,
         noticeNumber: n.notice_number,
-        amount: n.amount,
+        amount: parseFloat(n.amount),
         status: n.status,
         dueDate: n.due_date,
         periodMonth: n.period_month,
@@ -254,9 +271,9 @@ export async function getAdminDashboard() {
         serviceDomain: n.service_domain ?? null,
       })),
 
-      activeDomainsCount: domainsCounts.active_domains,
-      dueSoonDomainsCount: domainsCounts.due_soon_domains,
-      expiredDomainsCount: domainsCounts.expired_domains,
+      activeDomainsCount: parseInt(domainsCounts.active_domains),
+      dueSoonDomainsCount: parseInt(domainsCounts.due_soon_domains),
+      expiredDomainsCount: parseInt(domainsCounts.expired_domains),
 
       upcomingDomains: upcomingDomainsRes.rows.map((d) => ({
         id: d.id,
@@ -267,8 +284,8 @@ export async function getAdminDashboard() {
         serviceDomain: d.service_domain ?? null,
       })),
 
-      openTicketsCount: ticketsCountsRes.rows[0].open_tickets,
-      urgentTicketsCount: ticketsCountsRes.rows[0].urgent_tickets,
+      openTicketsCount: parseInt(ticketsCountsRes.rows[0].open_tickets),
+      urgentTicketsCount: parseInt(ticketsCountsRes.rows[0].urgent_tickets),
 
       recentTickets: recentTicketsRes.rows.map((t) => ({
         id: t.id,
@@ -282,9 +299,9 @@ export async function getAdminDashboard() {
         assignedUserName: t.assigned_user_name ?? null,
       })),
 
-      pendingTasksCount: tasksCountsRes.rows[0].pending_tasks,
-      urgentTasksCount: tasksCountsRes.rows[0].urgent_tasks,
-      overdueTasksCount: overdueTasksRes.rows[0].overdue_tasks,
+      pendingTasksCount: parseInt(tasksCountsRes.rows[0].pending_tasks),
+      urgentTasksCount: parseInt(tasksCountsRes.rows[0].urgent_tasks),
+      overdueTasksCount: parseInt(overdueTasksRes.rows[0].overdue_tasks),
 
       upcomingTasks: upcomingTasksRes.rows.map((t) => ({
         id: t.id,

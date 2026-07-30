@@ -54,6 +54,7 @@ export async function updateSetting(req, res, next) {
     // Log changes
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "editar",
       entityType: "automation_setting",
       entityId: key,
@@ -94,6 +95,7 @@ export async function toggleSetting(req, res, next) {
     // Log toggle
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "editar",
       entityType: "automation_setting",
       entityId: key,
@@ -137,6 +139,7 @@ export async function addNotificationRecipient(req, res, next) {
 
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "editar",
       entityType: "automation_setting",
       entityId: `notification_recipients_${type}`,
@@ -170,6 +173,7 @@ export async function removeNotificationRecipient(req, res, next) {
 
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "editar",
       entityType: "automation_setting",
       entityId: `notification_recipients_${type}`,

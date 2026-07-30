@@ -144,27 +144,26 @@ export const schedulerService = {
    * Save log to database
    */
   async saveLog(logEntry) {
-    const query = `
-      INSERT INTO scheduler_logs (
-        job_name, status, started_at, finished_at, duration_ms, summary, error_message
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7
-      )
-      RETURNING id
-    `;
-
-    const values = [
-      logEntry.jobName,
-      logEntry.status,
-      logEntry.startedAt,
-      logEntry.finishedAt || null,
-      logEntry.durationMs || null,
-      logEntry.summary ? JSON.stringify(logEntry.summary) : null,
-      logEntry.errorMessage || null,
-    ];
-
-    const result = await pool.query(query, values);
-    return result.rows[0]?.id;
+    // id generado en la app (UUID v4, crypto.randomUUID) — misma política
+    // que el resto de los dominios convertidos. INSERT sin RETURNING +
+    // SELECT posterior por id (mysql2 no soporta RETURNING).
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO scheduler_logs (
+        id, job_name, status, started_at, finished_at, duration_ms, summary, error_message
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        logEntry.jobName,
+        logEntry.status,
+        logEntry.startedAt,
+        logEntry.finishedAt || null,
+        logEntry.durationMs || null,
+        logEntry.summary ? JSON.stringify(logEntry.summary) : null,
+        logEntry.errorMessage || null,
+      ],
+    );
+    return id;
   },
 
   /**
@@ -173,28 +172,25 @@ export const schedulerService = {
   async getLogs(filters = {}) {
     const { jobName, status, page = 1, limit = 50 } = filters;
 
-    let query = "SELECT * FROM scheduler_logs WHERE 1=1";
+    const conditions = [];
     const values = [];
-    let paramCount = 1;
 
     if (jobName) {
-      query += ` AND job_name = $${paramCount++}`;
+      conditions.push(`job_name = ?`);
       values.push(jobName);
     }
-
     if (status) {
-      query += ` AND status = $${paramCount++}`;
+      conditions.push(`status = ?`);
       values.push(status);
     }
 
-    query += " ORDER BY created_at DESC";
-
-    // Pagination
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const offset = (page - 1) * limit;
-    query += ` LIMIT $${paramCount++} OFFSET $${paramCount++}`;
-    values.push(limit, offset);
 
-    const result = await pool.query(query, values);
+    const result = await pool.query(
+      `SELECT * FROM scheduler_logs ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      [...values, limit, offset],
+    );
     return result.rows;
   },
 
@@ -204,21 +200,24 @@ export const schedulerService = {
   async getLogsCount(filters = {}) {
     const { jobName, status } = filters;
 
-    let query = "SELECT COUNT(*) as total FROM scheduler_logs WHERE 1=1";
+    const conditions = [];
     const values = [];
-    let paramCount = 1;
 
     if (jobName) {
-      query += ` AND job_name = $${paramCount++}`;
+      conditions.push(`job_name = ?`);
       values.push(jobName);
     }
-
     if (status) {
-      query += ` AND status = $${paramCount++}`;
+      conditions.push(`status = ?`);
       values.push(status);
     }
 
-    const result = await pool.query(query, values);
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    // AS total explícito: Postgres nombra "total" a SELECT COUNT(*) as total
+    // sin problema (el alias ya estaba puesto), pero se conserva acá tal
+    // cual porque ya era portable — sin este alias, MariaDB devolvería
+    // "COUNT(*)" literal (mismo hallazgo que otros dominios).
+    const result = await pool.query(`SELECT COUNT(*) as total FROM scheduler_logs ${where}`, values);
     return parseInt(result.rows[0]?.total || "0");
   },
 
@@ -226,17 +225,10 @@ export const schedulerService = {
    * Get latest log for a job
    */
   async getLatestLog(jobName) {
-    const query = `
-      SELECT * FROM scheduler_logs
-      WHERE job_name = $1
-      ORDER BY created_at DESC
-      LIMIT 1
-    `;
-
-    // Bug objetivo corregido: usaba `db.query` pero `db` nunca estaba
-    // importado en este archivo — tiraba ReferenceError siempre que se
-    // llamaba (GET /api/scheduler/jobs/:jobName/latest estaba roto).
-    const result = await pool.query(query, [jobName]);
+    const result = await pool.query(
+      `SELECT * FROM scheduler_logs WHERE job_name = ? ORDER BY created_at DESC LIMIT 1`,
+      [jobName],
+    );
     return result.rows[0] || null;
   },
 };

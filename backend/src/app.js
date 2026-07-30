@@ -142,7 +142,7 @@ app.get("/api/system/status", authRequired, requireStaff, async (req, res) => {
   try {
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60000);
     const schedulerCheck = await pool.query(
-      "SELECT status FROM scheduler_logs WHERE created_at > $1 LIMIT 1",
+      "SELECT status FROM scheduler_logs WHERE created_at > ? LIMIT 1",
       [fiveMinutesAgo]
     );
     results.scheduler = schedulerCheck.rows.length > 0 ? "active" : "idle";
