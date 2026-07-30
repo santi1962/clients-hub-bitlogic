@@ -28,6 +28,11 @@ import "dotenv/config";
 import pool from "../db/pool.js";
 import * as readline from "readline";
 
+if (process.env.NODE_ENV === "production") {
+  console.error("[clear-demo-data] FATAL: NODE_ENV=production — este script asume datos de demo, nunca corre en producción.");
+  process.exit(1);
+}
+
 const DEMO_CLIENT_IDS = [
   "22222222-2222-2222-2222-000000000001", // Café del Valle
   "22222222-2222-2222-2222-000000000002", // Estudio Acosta
@@ -77,55 +82,59 @@ async function clearDemoData() {
 
     console.log("\n🔄 Eliminando registros...\n");
 
+    // IN (?,?,...) en vez de ANY($1) — MariaDB no soporta ANY() con un
+    // array como parámetro; se arma un placeholder por id.
+    const placeholders = DEMO_CLIENT_IDS.map(() => "?").join(",");
+
     // 1. Mensajes de soporte (dependen de support_tickets)
     let res = await client.query(
       `DELETE FROM support_ticket_messages
        WHERE ticket_id IN (
-         SELECT id FROM support_tickets WHERE client_id = ANY($1)
+         SELECT id FROM support_tickets WHERE client_id IN (${placeholders})
        )`,
-      [DEMO_CLIENT_IDS],
+      DEMO_CLIENT_IDS,
     );
     if (res.rowCount > 0) console.log(`  ✓ ${res.rowCount} mensajes de soporte`);
 
     // 2. Tickets de soporte
     res = await client.query(
-      "DELETE FROM support_tickets WHERE client_id = ANY($1)",
-      [DEMO_CLIENT_IDS],
+      `DELETE FROM support_tickets WHERE client_id IN (${placeholders})`,
+      DEMO_CLIENT_IDS,
     );
     if (res.rowCount > 0) console.log(`  ✓ ${res.rowCount} tickets de soporte`);
 
     // 3. Avisos de pago
     res = await client.query(
-      "DELETE FROM payment_notices WHERE client_id = ANY($1)",
-      [DEMO_CLIENT_IDS],
+      `DELETE FROM payment_notices WHERE client_id IN (${placeholders})`,
+      DEMO_CLIENT_IDS,
     );
     if (res.rowCount > 0) console.log(`  ✓ ${res.rowCount} avisos de pago`);
 
     // 4. Pagos
     res = await client.query(
-      "DELETE FROM payments WHERE client_id = ANY($1)",
-      [DEMO_CLIENT_IDS],
+      `DELETE FROM payments WHERE client_id IN (${placeholders})`,
+      DEMO_CLIENT_IDS,
     );
     if (res.rowCount > 0) console.log(`  ✓ ${res.rowCount} pagos`);
 
     // 5. Dominios
     res = await client.query(
-      "DELETE FROM domains WHERE client_id = ANY($1)",
-      [DEMO_CLIENT_IDS],
+      `DELETE FROM domains WHERE client_id IN (${placeholders})`,
+      DEMO_CLIENT_IDS,
     );
     if (res.rowCount > 0) console.log(`  ✓ ${res.rowCount} dominios`);
 
     // 6. Servicios de hosting (ON DELETE CASCADE, pero lo hacemos explícito)
     res = await client.query(
-      "DELETE FROM hosting_services WHERE client_id = ANY($1)",
-      [DEMO_CLIENT_IDS],
+      `DELETE FROM hosting_services WHERE client_id IN (${placeholders})`,
+      DEMO_CLIENT_IDS,
     );
     if (res.rowCount > 0) console.log(`  ✓ ${res.rowCount} servicios de hosting`);
 
     // 7. Clientes (elimina en cascada todo lo relacionado)
     res = await client.query(
-      "DELETE FROM clients WHERE id = ANY($1)",
-      [DEMO_CLIENT_IDS],
+      `DELETE FROM clients WHERE id IN (${placeholders})`,
+      DEMO_CLIENT_IDS,
     );
     if (res.rowCount > 0) console.log(`  ✓ ${res.rowCount} clientes`);
 
