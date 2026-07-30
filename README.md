@@ -11,7 +11,7 @@ Sistema interno de Bitlogic (empresa de hosting) para gestionar clientes, servic
 | Capa | Tecnología |
 |------|-----------|
 | **Frontend** | React 19, TanStack Start (SSR) + TanStack Router/Query, Tailwind CSS, shadcn/ui |
-| **Backend** | Node.js 18+ (ESM), Express, PostgreSQL (SQL directo, sin ORM) |
+| **Backend** | Node.js 18+ (ESM), Express, PostgreSQL (SQL directo, sin ORM). Motor activo hoy; el código de aplicación ya es 100% ejecutable contra MariaDB también (capa dual `pg`/`mysql2`), ver [`docs/MARIADB_MIGRATION.md`](docs/MARIADB_MIGRATION.md) — todavía no se migraron datos reales ni se cambió el motor de producción |
 | **Auth** | JWT (accessToken 15min en memoria + refreshToken httpOnly 30d) |
 | **Tiempo real** | Socket.IO (chat de tickets) — requiere backend en 1 sola instancia (fork), nunca cluster |
 | **Procesos** | PM2 vía `ecosystem.config.js` (raíz) — `bitlogic-backend` + `bitlogic-frontend`, ambas fork/1 instancia |
