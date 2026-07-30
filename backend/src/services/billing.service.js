@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import pool from "../db/pool.js";
 import PDFDocument from "pdfkit";
 import path from "path";
@@ -5,8 +6,21 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { Jimp } from "jimp";
 import { getCompanySettings } from "./settings.service.js";
+import config from "../config/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// NEXTVAL(seq) no tiene sintaxis común: Postgres exige el nombre de la
+// secuencia como string literal (`nextval('seq')`, tipeado regclass);
+// MariaDB exige un identificador sin comillas (`NEXTVAL(seq)`), igual que ya
+// se usa dentro del trigger de ticket_number. Ninguna de las dos formas
+// funciona en el otro motor -> branching real por config.db.driver, mismo
+// criterio que ON CONFLICT/ON DUPLICATE KEY UPDATE (email_templates) y la
+// columna reservada `key` (automation_settings).
+const NEXTVAL_NOTICE_SEQ_SQL =
+  config.db.driver === "mysql"
+    ? `SELECT NEXTVAL(payment_notice_number_seq) AS n`
+    : `SELECT NEXTVAL('payment_notice_number_seq') AS n`;
 
 // ─────────────────────────────────────────────────────────────
 // Formatters
@@ -99,26 +113,27 @@ export async function listNotices({
 } = {}) {
   const conditions = [];
   const params = [];
-  let idx = 1;
 
   if (clientId) {
-    conditions.push(`pn.client_id = $${idx++}`);
+    conditions.push(`pn.client_id = ?`);
     params.push(clientId);
   }
   if (serviceId) {
-    conditions.push(`pn.hosting_service_id = $${idx++}`);
+    conditions.push(`pn.hosting_service_id = ?`);
     params.push(serviceId);
   }
   if (status) {
-    conditions.push(`pn.status = $${idx++}`);
+    conditions.push(`pn.status = ?`);
     params.push(status);
   }
   if (search) {
+    // ILIKE (Postgres) -> LOWER()/LIKE, portable en ambos motores sin
+    // depender del collation de la columna (mismo criterio que clients/tasks).
     conditions.push(
-      `(c.company ILIKE $${idx} OR c.name ILIKE $${idx} OR hs.domain ILIKE $${idx} OR pn.notice_number ILIKE $${idx})`,
+      `(LOWER(c.company) LIKE LOWER(?) OR LOWER(c.name) LIKE LOWER(?) OR LOWER(hs.domain) LIKE LOWER(?) OR LOWER(pn.notice_number) LIKE LOWER(?))`,
     );
-    params.push(`%${search}%`);
-    idx++;
+    const like = `%${search}%`;
+    params.push(like, like, like, like);
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -126,11 +141,11 @@ export async function listNotices({
 
   const [dataRes, countRes] = await Promise.all([
     pool.query(
-      `${NOTICE_SELECT} ${where} ORDER BY pn.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      `${NOTICE_SELECT} ${where} ORDER BY pn.created_at DESC LIMIT ? OFFSET ?`,
       [...params, limit, offset],
     ),
     pool.query(
-      `SELECT COUNT(*) FROM payment_notices pn
+      `SELECT COUNT(*) AS count FROM payment_notices pn
        LEFT JOIN clients c ON c.id = pn.client_id
        LEFT JOIN hosting_services hs ON hs.id = pn.hosting_service_id
        ${where}`,
@@ -145,7 +160,7 @@ export async function listNotices({
 }
 
 export async function getNoticeById(id) {
-  const { rows } = await pool.query(`${NOTICE_SELECT} WHERE pn.id = $1`, [id]);
+  const { rows } = await pool.query(`${NOTICE_SELECT} WHERE pn.id = ?`, [id]);
   if (!rows[0]) {
     const e = new Error("Aviso no encontrado");
     e.status = 404;
@@ -174,7 +189,7 @@ export async function createNotice({
   // Usar monto del servicio si no se proporciona
   let noticeAmount = amount;
   if (!noticeAmount) {
-    const { rows } = await pool.query(`SELECT monthly_price FROM hosting_services WHERE id = $1`, [
+    const { rows } = await pool.query(`SELECT monthly_price FROM hosting_services WHERE id = ?`, [
       hostingServiceId,
     ]);
     if (!rows[0]) {
@@ -188,13 +203,17 @@ export async function createNotice({
   // Generar número de aviso
   const {
     rows: [seqRow],
-  } = await pool.query(`SELECT NEXTVAL('payment_notice_number_seq') AS n`);
+  } = await pool.query(NEXTVAL_NOTICE_SEQ_SQL);
   const noticeNumber = `AV-${periodYear}-${String(seqRow.n).padStart(4, "0")}`;
 
-  const { rows } = await pool.query(
-    `INSERT INTO payment_notices (client_id, hosting_service_id, notice_number, period_month, period_year, due_date, amount, status, notes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8) RETURNING id`,
+  // UUID v4 generado en la app (misma política que el resto de los dominios
+  // convertidos) — INSERT sin RETURNING, se conoce el id de antemano.
+  const id = randomUUID();
+  await pool.query(
+    `INSERT INTO payment_notices (id, client_id, hosting_service_id, notice_number, period_month, period_year, due_date, amount, status, notes)
+     VALUES (?,?,?,?,?,?,?,?,'pending',?)`,
     [
+      id,
       clientId,
       hostingServiceId,
       noticeNumber,
@@ -206,35 +225,38 @@ export async function createNotice({
     ],
   );
 
-  return getNoticeById(rows[0].id);
+  return getNoticeById(id);
 }
 
 export async function updateNotice(id, data) {
   const { dueDate, amount, notes, status } = data;
-  const { rows } = await pool.query(
+  // UPDATE...RETURNING -> el 404 se decide con un getNoticeById previo (ya
+  // lanza 404), no con rowCount: un UPDATE con COALESCE puede no cambiar
+  // ningún valor real (rowCount=0 en MariaDB sin CLIENT_FOUND_ROWS) aunque
+  // la fila exista — mismo criterio que el resto de los dominios.
+  await getNoticeById(id);
+  await pool.query(
     `UPDATE payment_notices SET
-       due_date = COALESCE($2, due_date),
-       amount   = COALESCE($3, amount),
-       notes    = COALESCE($4, notes),
-       status   = COALESCE($5, status)
-     WHERE id = $1 RETURNING id`,
-    [id, dueDate ?? null, amount ?? null, notes ?? null, status ?? null],
+       due_date = COALESCE(?, due_date),
+       amount   = COALESCE(?, amount),
+       notes    = COALESCE(?, notes),
+       status   = COALESCE(?, status)
+     WHERE id = ?`,
+    [dueDate ?? null, amount ?? null, notes ?? null, status ?? null, id],
   );
-  if (!rows[0]) {
-    const e = new Error("Aviso no encontrado");
-    e.status = 404;
-    throw e;
-  }
   return getNoticeById(id);
 }
 
 export async function sendNotice(id) {
-  const { rows } = await pool.query(
+  // WHERE excluye el estado destino ('sent') de los estados de origen
+  // permitidos -> un UPDATE que matchea SIEMPRE cambia el valor, rowCount es
+  // seguro en ambos motores (mismo patrón que suspendService/reactivateService).
+  const { rowCount } = await pool.query(
     `UPDATE payment_notices SET status = 'sent', sent_at = now()
-     WHERE id = $1 AND status IN ('draft','pending') RETURNING id`,
+     WHERE id = ? AND status IN ('draft','pending')`,
     [id],
   );
-  if (!rows[0]) {
+  if (!rowCount) {
     const e = new Error("Aviso no encontrado o no está en estado enviable");
     e.status = 404;
     throw e;
@@ -243,12 +265,14 @@ export async function sendNotice(id) {
 }
 
 export async function cancelNotice(id) {
-  const { rows } = await pool.query(
+  // Mismo criterio que sendNotice: WHERE excluye 'cancelled' de los estados
+  // de origen -> rowCount seguro.
+  const { rowCount } = await pool.query(
     `UPDATE payment_notices SET status = 'cancelled'
-     WHERE id = $1 AND status NOT IN ('paid','cancelled') RETURNING id`,
+     WHERE id = ? AND status NOT IN ('paid','cancelled')`,
     [id],
   );
-  if (!rows[0]) {
+  if (!rowCount) {
     const e = new Error("Aviso no encontrado o no se puede cancelar");
     e.status = 404;
     throw e;
@@ -257,11 +281,13 @@ export async function cancelNotice(id) {
 }
 
 export async function deleteNotice(id) {
-  const { rows } = await pool.query(
-    `DELETE FROM payment_notices WHERE id = $1 AND status != 'paid' RETURNING id`,
+  // DELETE sin RETURNING: rowCount siempre seguro para decidir 404 (sin la
+  // ambigüedad de "matcheó pero no cambió ningún valor" que sí tiene UPDATE).
+  const { rowCount } = await pool.query(
+    `DELETE FROM payment_notices WHERE id = ? AND status != 'paid'`,
     [id],
   );
-  if (!rows[0]) {
+  if (!rowCount) {
     const e = new Error("Aviso no encontrado o no se puede eliminar un aviso ya pagado");
     e.status = 404;
     throw e;
@@ -283,30 +309,29 @@ export async function listPayments({
 } = {}) {
   const conditions = [];
   const params = [];
-  let idx = 1;
 
   if (clientId) {
-    conditions.push(`p.client_id = $${idx++}`);
+    conditions.push(`p.client_id = ?`);
     params.push(clientId);
   }
   if (serviceId) {
-    conditions.push(`p.hosting_service_id = $${idx++}`);
+    conditions.push(`p.hosting_service_id = ?`);
     params.push(serviceId);
   }
   if (status) {
-    conditions.push(`p.status = $${idx++}`);
+    conditions.push(`p.status = ?`);
     params.push(status);
   }
   if (method) {
-    conditions.push(`p.method = $${idx++}`);
+    conditions.push(`p.method = ?`);
     params.push(method);
   }
   if (periodMonth) {
-    conditions.push(`p.period_month = $${idx++}`);
+    conditions.push(`p.period_month = ?`);
     params.push(parseInt(periodMonth));
   }
   if (periodYear) {
-    conditions.push(`p.period_year = $${idx++}`);
+    conditions.push(`p.period_year = ?`);
     params.push(parseInt(periodYear));
   }
 
@@ -315,10 +340,10 @@ export async function listPayments({
 
   const [dataRes, countRes] = await Promise.all([
     pool.query(
-      `${PAYMENT_SELECT} ${where} ORDER BY p.created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      `${PAYMENT_SELECT} ${where} ORDER BY p.created_at DESC LIMIT ? OFFSET ?`,
       [...params, limit, offset],
     ),
-    pool.query(`SELECT COUNT(*) FROM payments p ${where}`, params),
+    pool.query(`SELECT COUNT(*) AS count FROM payments p ${where}`, params),
   ]);
 
   return {
@@ -328,7 +353,7 @@ export async function listPayments({
 }
 
 export async function getPaymentById(id) {
-  const { rows } = await pool.query(`${PAYMENT_SELECT} WHERE p.id = $1`, [id]);
+  const { rows } = await pool.query(`${PAYMENT_SELECT} WHERE p.id = ?`, [id]);
   if (!rows[0]) {
     const e = new Error("Pago no encontrado");
     e.status = 404;
@@ -360,10 +385,12 @@ export async function createPayment({
     await client.query("BEGIN");
 
     const status = paidAt ? "paid" : "pending";
-    const { rows } = await client.query(
-      `INSERT INTO payments (client_id, hosting_service_id, payment_notice_id, period_month, period_year, amount, method, status, paid_at, reference, internal_notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+    const id = randomUUID();
+    await client.query(
+      `INSERT INTO payments (id, client_id, hosting_service_id, payment_notice_id, period_month, period_year, amount, method, status, paid_at, reference, internal_notes)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
+        id,
         clientId,
         hostingServiceId ?? null,
         paymentNoticeId ?? null,
@@ -380,14 +407,14 @@ export async function createPayment({
 
     // Si hay aviso y pago con fecha, marcar aviso como pagado
     if (paymentNoticeId && paidAt) {
-      await client.query(`UPDATE payment_notices SET status = 'paid', paid_at = $2 WHERE id = $1`, [
-        paymentNoticeId,
+      await client.query(`UPDATE payment_notices SET status = 'paid', paid_at = ? WHERE id = ?`, [
         paidAt,
+        paymentNoticeId,
       ]);
     }
 
     await client.query("COMMIT");
-    return getPaymentById(rows[0].id);
+    return getPaymentById(id);
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;
@@ -398,52 +425,57 @@ export async function createPayment({
 
 export async function updatePayment(id, data) {
   const { amount, method, status, paidAt, reference, internalNotes } = data;
-  const { rows } = await pool.query(
+  // Mismo criterio que updateNotice: 404 decidido por un SELECT previo, no
+  // por rowCount (COALESCE puede no cambiar ningún valor real).
+  await getPaymentById(id);
+  await pool.query(
     `UPDATE payments SET
-       amount         = COALESCE($2, amount),
-       method         = COALESCE($3, method),
-       status         = COALESCE($4, status),
-       paid_at        = COALESCE($5, paid_at),
-       reference      = COALESCE($6, reference),
-       internal_notes = COALESCE($7, internal_notes)
-     WHERE id = $1 RETURNING id`,
+       amount         = COALESCE(?, amount),
+       method         = COALESCE(?, method),
+       status         = COALESCE(?, status),
+       paid_at        = COALESCE(?, paid_at),
+       reference      = COALESCE(?, reference),
+       internal_notes = COALESCE(?, internal_notes)
+     WHERE id = ?`,
     [
-      id,
       amount ?? null,
       method ?? null,
       status ?? null,
       paidAt ?? null,
       reference ?? null,
       internalNotes ?? null,
+      id,
     ],
   );
-  if (!rows[0]) {
-    const e = new Error("Pago no encontrado");
-    e.status = 404;
-    throw e;
-  }
   return getPaymentById(id);
 }
 
 export async function markPaid(id) {
+  // Se lee antes de la transacción para conocer payment_notice_id (antes
+  // salía del RETURNING *, que no tiene equivalente con `?` sin CTE) y para
+  // dar 404 si el pago no existe en absoluto.
+  const existing = await getPaymentById(id);
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const { rows } = await client.query(
-      `UPDATE payments SET status = 'paid', paid_at = now() WHERE id = $1 AND status != 'paid' RETURNING *`,
+    // WHERE excluye 'paid' del estado de origen -> rowCount seguro (mismo
+    // patrón que sendNotice/cancelNotice).
+    const { rowCount } = await client.query(
+      `UPDATE payments SET status = 'paid', paid_at = now() WHERE id = ? AND status != 'paid'`,
       [id],
     );
-    if (!rows[0]) {
+    if (!rowCount) {
       const e = new Error("Pago no encontrado o ya está pagado");
       e.status = 404;
       throw e;
     }
 
     // Marcar aviso relacionado si existe
-    if (rows[0].payment_notice_id) {
+    if (existing.paymentNoticeId) {
       await client.query(
-        `UPDATE payment_notices SET status = 'paid', paid_at = now() WHERE id = $1`,
-        [rows[0].payment_notice_id],
+        `UPDATE payment_notices SET status = 'paid', paid_at = now() WHERE id = ?`,
+        [existing.paymentNoticeId],
       );
     }
     await client.query("COMMIT");
@@ -457,21 +489,25 @@ export async function markPaid(id) {
 }
 
 export async function deletePayment(id) {
+  // Se lee antes de borrar (equivalente al DELETE...RETURNING * original)
+  // para saber si hay que revertir el aviso relacionado.
+  const existing = await getPaymentById(id);
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const { rows } = await client.query(`DELETE FROM payments WHERE id = $1 RETURNING *`, [id]);
-    if (!rows[0]) {
+    const { rowCount } = await client.query(`DELETE FROM payments WHERE id = ?`, [id]);
+    if (!rowCount) {
       const e = new Error("Pago no encontrado");
       e.status = 404;
       throw e;
     }
 
     // Revertir aviso relacionado si quedó marcado como pagado por este pago
-    if (rows[0].payment_notice_id && rows[0].status === "paid") {
+    if (existing.paymentNoticeId && existing.status === "paid") {
       await client.query(
-        `UPDATE payment_notices SET status = 'pending', paid_at = NULL WHERE id = $1 AND status = 'paid'`,
-        [rows[0].payment_notice_id],
+        `UPDATE payment_notices SET status = 'pending', paid_at = NULL WHERE id = ? AND status = 'paid'`,
+        [existing.paymentNoticeId],
       );
     }
     await client.query("COMMIT");
@@ -487,33 +523,36 @@ export async function deletePayment(id) {
 // Summaries
 // ─────────────────────────────────────────────────────────────
 export async function getClientSummary(clientId) {
+  // FILTER (WHERE ...) es exclusivo de Postgres -> COUNT/SUM/MAX/MIN con
+  // CASE WHEN, estándar SQL, mismo resultado en ambos motores (mismo
+  // criterio que clients.service.js desde DB-3B).
   const [paymentRow, noticeRow, serviceRow] = await Promise.all([
     pool.query(
       `
       SELECT
-        COALESCE(SUM(amount) FILTER (WHERE status = 'paid'),    0) AS total_paid,
-        COALESCE(SUM(amount) FILTER (WHERE status = 'pending'), 0) AS total_pending,
-        COALESCE(SUM(amount) FILTER (WHERE status = 'overdue'), 0) AS total_overdue,
-        MAX(paid_at) FILTER (WHERE status = 'paid')               AS last_payment_date
-      FROM payments WHERE client_id = $1
+        COALESCE(SUM(CASE WHEN status = 'paid'    THEN amount END), 0) AS total_paid,
+        COALESCE(SUM(CASE WHEN status = 'pending' THEN amount END), 0) AS total_pending,
+        COALESCE(SUM(CASE WHEN status = 'overdue' THEN amount END), 0) AS total_overdue,
+        MAX(CASE WHEN status = 'paid' THEN paid_at END)                AS last_payment_date
+      FROM payments WHERE client_id = ?
     `,
       [clientId],
     ),
     pool.query(
       `
       SELECT
-        COUNT(*) FILTER (WHERE status IN ('pending','sent'))  AS notices_pending,
-        COUNT(*) FILTER (WHERE status = 'overdue')            AS notices_overdue
-      FROM payment_notices WHERE client_id = $1
+        COUNT(CASE WHEN status IN ('pending','sent') THEN 1 END) AS notices_pending,
+        COUNT(CASE WHEN status = 'overdue' THEN 1 END)           AS notices_overdue
+      FROM payment_notices WHERE client_id = ?
     `,
       [clientId],
     ),
     pool.query(
       `
       SELECT
-        COUNT(*) FILTER (WHERE status NOT IN ('cancelled','suspended')) AS services_count,
-        MIN(next_due_date) FILTER (WHERE status NOT IN ('cancelled','suspended')) AS next_due_date
-      FROM hosting_services WHERE client_id = $1
+        COUNT(CASE WHEN status NOT IN ('cancelled','suspended') THEN 1 END) AS services_count,
+        MIN(CASE WHEN status NOT IN ('cancelled','suspended') THEN next_due_date END) AS next_due_date
+      FROM hosting_services WHERE client_id = ?
     `,
       [clientId],
     ),
@@ -537,42 +576,60 @@ export async function getClientSummary(clientId) {
 }
 
 export async function getGlobalSummary() {
-  const [revenueRow, paymentsRow, noticeCountRow, revenueMonths, planDist, overduePayments] =
+  const now = new Date();
+  // Últimos 12 meses (incluye el actual), calculados en Node en vez de
+  // generate_series() (exclusivo de Postgres, sin equivalente en MariaDB).
+  const months = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ month: d.getMonth() + 1, year: d.getFullYear() });
+  }
+  const monthsCutoff = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+
+  const [revenueRow, paymentsRow, noticeCountRow, revenueMonthsRow, planDist, overduePayments] =
     await Promise.all([
       pool.query(
         `SELECT COALESCE(SUM(monthly_price),0) AS monthly FROM hosting_services WHERE status NOT IN ('cancelled','suspended')`,
       ),
-      pool.query(`
+      // date_trunc('month', paid_at) = date_trunc('month', CURRENT_DATE) ->
+      // comparar año y mes por separado con EXTRACT (portable, mismo
+      // criterio que dashboard.service.js en DB-3I). FILTER -> CASE WHEN.
+      pool.query(
+        `
       SELECT
-        COALESCE(SUM(amount) FILTER (WHERE status='paid' AND date_trunc('month', paid_at) = date_trunc('month', CURRENT_DATE)), 0) AS collected_this_month,
-        COALESCE(SUM(amount) FILTER (WHERE status='pending'), 0) AS pending_total,
-        COALESCE(SUM(amount) FILTER (WHERE status='overdue'),  0) AS overdue_total
+        COALESCE(SUM(CASE WHEN status='paid'
+          AND EXTRACT(YEAR FROM paid_at) = EXTRACT(YEAR FROM ?)
+          AND EXTRACT(MONTH FROM paid_at) = EXTRACT(MONTH FROM ?)
+          THEN amount END), 0) AS collected_this_month,
+        COALESCE(SUM(CASE WHEN status='pending' THEN amount END), 0) AS pending_total,
+        COALESCE(SUM(CASE WHEN status='overdue' THEN amount END), 0) AS overdue_total
       FROM payments
-    `),
+    `,
+        [now, now],
+      ),
       pool.query(`
       SELECT
-        COUNT(*) FILTER (WHERE status IN ('pending','sent')) AS pending_count,
-        COUNT(*) FILTER (WHERE status='overdue')             AS overdue_count
+        COUNT(CASE WHEN status IN ('pending','sent') THEN 1 END) AS pending_count,
+        COUNT(CASE WHEN status='overdue' THEN 1 END)             AS overdue_count
       FROM payment_notices
     `),
-      pool.query(`
-      WITH months AS (
-        SELECT generate_series(
-          date_trunc('month', CURRENT_DATE - INTERVAL '11 months'),
-          date_trunc('month', CURRENT_DATE),
-          INTERVAL '1 month'
-        ) AS ms
-      )
+      // Suma de pagos cobrados por año/mes en la ventana de 12 meses -> se
+      // combina con `months` (arriba) en JS para rellenar con 0 los meses
+      // sin cobros, reemplazando el WITH months AS (generate_series(...)).
+      pool.query(
+        `
       SELECT
-        EXTRACT(MONTH FROM m.ms)::int AS month,
-        EXTRACT(YEAR  FROM m.ms)::int AS year,
-        COALESCE(SUM(p.amount), 0)::numeric AS total
-      FROM months m
-      LEFT JOIN payments p ON date_trunc('month', p.paid_at) = m.ms AND p.status = 'paid'
-      GROUP BY m.ms ORDER BY m.ms
-    `),
+        EXTRACT(YEAR  FROM paid_at) AS year,
+        EXTRACT(MONTH FROM paid_at) AS month,
+        COALESCE(SUM(amount), 0) AS total
+      FROM payments
+      WHERE status = 'paid' AND paid_at >= ?
+      GROUP BY EXTRACT(YEAR FROM paid_at), EXTRACT(MONTH FROM paid_at)
+    `,
+        [monthsCutoff],
+      ),
       pool.query(`
-      SELECT hp.name, COUNT(hs.id)::int AS value
+      SELECT hp.name, COUNT(hs.id) AS value
       FROM hosting_plans hp
       LEFT JOIN hosting_services hs ON hs.plan_id = hp.id AND hs.status NOT IN ('cancelled')
       GROUP BY hp.id, hp.name ORDER BY hp.monthly_price ASC
@@ -593,6 +650,15 @@ export async function getGlobalSummary() {
   const nc = noticeCountRow.rows[0];
   const collectedThisMonth = parseFloat(pr.collected_this_month);
 
+  const totalsByKey = new Map(
+    revenueMonthsRow.rows.map((r) => [`${parseInt(r.year)}-${parseInt(r.month)}`, parseFloat(r.total)]),
+  );
+  const revenueLast12Months = months.map(({ month, year }) => ({
+    month,
+    year,
+    total: totalsByKey.get(`${year}-${month}`) ?? 0,
+  }));
+
   return {
     monthly,
     annualProjection: monthly * 12,
@@ -601,17 +667,13 @@ export async function getGlobalSummary() {
     debt: parseFloat(pr.overdue_total),
     pendingNoticesCount: parseInt(nc.pending_count),
     overdueNoticesCount: parseInt(nc.overdue_count),
-    revenueLast12Months: revenueMonths.rows.map((r) => ({
-      month: r.month,
-      year: r.year,
-      total: parseFloat(r.total),
-    })),
+    revenueLast12Months,
     paidVsPending: [
       { name: "Cobrado", value: collectedThisMonth },
       { name: "Pendiente", value: parseFloat(pr.pending_total) },
       { name: "Vencido", value: parseFloat(pr.overdue_total) },
     ],
-    planDistribution: planDist.rows,
+    planDistribution: planDist.rows.map((r) => ({ name: r.name, value: parseInt(r.value) })),
     overduePayments: overduePayments.rows.map((p) => ({
       id: p.id,
       clientId: p.client_id,

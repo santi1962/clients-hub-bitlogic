@@ -4,6 +4,15 @@
  * Cubre meses 2026-04, 2026-05, 2026-06 con distintos estados.
  */
 import pool from "../db/pool.js";
+import config from "../config/index.js";
+
+// SETVAL(seq, valor, is_called): Postgres exige el nombre de la secuencia
+// como string literal; MariaDB exige un identificador sin comillas (mismo
+// caso que NEXTVAL, ver billing.service.js) — branching por config.db.driver.
+const SETVAL_NOTICE_SEQ_SQL =
+  config.db.driver === "mysql"
+    ? `SELECT SETVAL(payment_notice_number_seq, 20, true)`
+    : `SELECT SETVAL('payment_notice_number_seq', 20, true)`;
 
 // Reutilizar los UUIDs deterministas del seed 002
 const C = {
@@ -401,6 +410,6 @@ export async function run() {
   console.log("  ✓ Pagos: 12 registros");
 
   // Avanzar la secuencia de avisos para que los nuevos empiecen en 21
-  await pool.query(`SELECT SETVAL('payment_notice_number_seq', 20, true)`);
+  await pool.query(SETVAL_NOTICE_SEQ_SQL);
   console.log("  ✓ Secuencia de avisos en 20 (próximo: AV-...-0021)");
 }

@@ -7,10 +7,27 @@ import {
   WebhookSignatureValidator,
   InvalidWebhookSignatureError,
 } from "mercadopago";
+import { randomUUID } from "crypto";
 import pool from "../db/pool.js";
 import config from "../config/index.js";
 import { authRequired } from "../middlewares/authRequired.js";
 import { createLogger } from "../utils/logger.js";
+
+// INSERT ... ON CONFLICT DO NOTHING (Postgres) vs INSERT IGNORE (MariaDB) —
+// sin target list, aplica ante cualquier violación de restricción (acá,
+// prácticamente solo un choque de PK, ya casi imposible con UUID v4). Mismo
+// criterio de branching por config.db.driver que email_templates/automation_settings.
+const INSERT_PAYMENT_FROM_WEBHOOK_SQL =
+  config.db.driver === "mysql"
+    ? `INSERT IGNORE INTO payments
+         (id, client_id, hosting_service_id, payment_notice_id, period_month, period_year,
+          amount, method, status, paid_at, reference, internal_notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'mercadopago', 'paid', now(), ?, ?)`
+    : `INSERT INTO payments
+         (id, client_id, hosting_service_id, payment_notice_id, period_month, period_year,
+          amount, method, status, paid_at, reference, internal_notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'mercadopago', 'paid', now(), ?, ?)
+       ON CONFLICT DO NOTHING`;
 
 const log = createLogger("mercadopago");
 const router = Router();
@@ -59,7 +76,7 @@ router.post("/checkout/:noticeId", authRequired, checkoutLimiter, async (req, re
        FROM payment_notices pn
        JOIN clients c ON pn.client_id = c.id
        JOIN hosting_services hs ON pn.hosting_service_id = hs.id
-       WHERE pn.id = $1 AND pn.client_id = $2`,
+       WHERE pn.id = ? AND pn.client_id = ?`,
       [req.params.noticeId, req.user.clientId],
     );
 
@@ -193,7 +210,7 @@ router.post("/mercadopago", webhookLimiter, async (req, res) => {
     // Verificar que el aviso existe y no fue pagado ya
     const { rows } = await pool.query(
       `SELECT id, client_id, hosting_service_id, period_month, period_year, amount, status
-       FROM payment_notices WHERE id = $1`,
+       FROM payment_notices WHERE id = ?`,
       [noticeId],
     );
     const notice = rows[0];
@@ -204,26 +221,23 @@ router.post("/mercadopago", webhookLimiter, async (req, res) => {
     try {
       await db.query("BEGIN");
 
-      await db.query(
-        `INSERT INTO payments
-           (client_id, hosting_service_id, payment_notice_id, period_month, period_year,
-            amount, method, status, paid_at, reference, internal_notes)
-         VALUES ($1, $2, $3, $4, $5, $6, 'mercadopago', 'paid', now(), $7, $8)
-         ON CONFLICT DO NOTHING`,
-        [
-          notice.client_id,
-          notice.hosting_service_id,
-          notice.id,
-          notice.period_month,
-          notice.period_year,
-          payment.transaction_amount ?? notice.amount,
-          String(payment.id),
-          `Pago MP ID: ${payment.id}`,
-        ],
-      );
+      // UUID v4 generado en la app (misma política que el resto de los
+      // dominios convertidos) — antes dependía del DEFAULT (UUID()) de la
+      // columna, retirado en esta fase.
+      await db.query(INSERT_PAYMENT_FROM_WEBHOOK_SQL, [
+        randomUUID(),
+        notice.client_id,
+        notice.hosting_service_id,
+        notice.id,
+        notice.period_month,
+        notice.period_year,
+        payment.transaction_amount ?? notice.amount,
+        String(payment.id),
+        `Pago MP ID: ${payment.id}`,
+      ]);
 
       await db.query(
-        `UPDATE payment_notices SET status = 'paid', updated_at = now() WHERE id = $1`,
+        `UPDATE payment_notices SET status = 'paid', updated_at = now() WHERE id = ?`,
         [noticeId],
       );
 

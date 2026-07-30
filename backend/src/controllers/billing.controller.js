@@ -70,6 +70,7 @@ export async function createNotice(req, res, next) {
     });
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "crear",
       entityType: "aviso",
       entityId: notice.id,
@@ -102,6 +103,7 @@ export async function sendNotice(req, res, next) {
     const sentNotice = await billingService.sendNotice(noticeId);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "enviar",
       entityType: "aviso",
       entityId: noticeId,
@@ -133,6 +135,7 @@ export async function cancelNotice(req, res, next) {
     const cancelledNotice = await billingService.cancelNotice(req.params.id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "cancelar",
       entityType: "aviso",
       entityId: req.params.id,
@@ -152,6 +155,7 @@ export async function deleteNotice(req, res, next) {
     await billingService.deleteNotice(req.params.id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "eliminar",
       entityType: "aviso",
       entityId: req.params.id,
@@ -229,6 +233,7 @@ export async function createPayment(req, res, next) {
     });
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "crear",
       entityType: "pago",
       entityId: payment.id,
@@ -250,6 +255,7 @@ export async function updatePayment(req, res, next) {
     const payment = await billingService.updatePayment(req.params.id, req.body ?? {});
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "editar",
       entityType: "pago",
       entityId: req.params.id,
@@ -269,6 +275,7 @@ export async function deletePayment(req, res, next) {
     await billingService.deletePayment(req.params.id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "eliminar",
       entityType: "pago",
       entityId: req.params.id,
@@ -287,6 +294,7 @@ export async function markPaid(req, res, next) {
     const payment = await billingService.markPaid(req.params.id);
     await auditService.logAction({
       user: req.user,
+      requestId: req.requestId,
       action: "marcar pagado",
       entityType: "pago",
       entityId: req.params.id,

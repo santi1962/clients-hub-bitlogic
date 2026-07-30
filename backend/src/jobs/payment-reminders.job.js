@@ -35,7 +35,10 @@ export async function paymentRemindersDaily() {
       };
     }
 
-    // Query payment notices with client info
+    // Query payment notices with client info. `days_until_due` se calcula en
+    // Node (no en SQL): `pn.due_date::date - CURRENT_DATE` es aritmética de
+    // fechas exclusiva de Postgres, sin equivalente portable de una sola
+    // query — mismo criterio que dashboard.service.js (DB-3I).
     const query = `
       SELECT
         pn.id,
@@ -46,8 +49,7 @@ export async function paymentRemindersDaily() {
         pn.status,
         c.email as contact_email,
         c.phone as contact_phone,
-        c.company,
-        (pn.due_date::date - CURRENT_DATE) as days_until_due
+        c.company
       FROM payment_notices pn
       JOIN clients c ON pn.client_id = c.id
       WHERE pn.status IN ('pending', 'sent')
@@ -59,9 +61,14 @@ export async function paymentRemindersDaily() {
     const notices = result.rows;
     summary.scannedNotices = notices.length;
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     // Process each notice
     for (const notice of notices) {
-      const daysUntilDue = notice.days_until_due;
+      const dueDate = new Date(notice.due_date);
+      dueDate.setHours(0, 0, 0, 0);
+      const daysUntilDue = Math.round((dueDate - today) / 86400000);
 
       // Check which reminders should be sent
       let reminderType = null;
@@ -87,8 +94,8 @@ export async function paymentRemindersDaily() {
         const duplicateCheck = await pool.query(
           `
           SELECT id FROM payment_reminder_logs
-          WHERE notice_id = $1
-          AND reminder_type = $2
+          WHERE notice_id = ?
+          AND reminder_type = ?
           AND sent_date = CURRENT_DATE
           LIMIT 1
           `,
@@ -119,7 +126,7 @@ export async function paymentRemindersDaily() {
           `
           INSERT INTO payment_reminder_logs
           (notice_id, reminder_type, recipient, status)
-          VALUES ($1, $2, $3, $4)
+          VALUES (?, ?, ?, ?)
           `,
           [notice.id, reminderType, notice.contact_email, "sent"],
         );
@@ -135,7 +142,7 @@ export async function paymentRemindersDaily() {
           `
           INSERT INTO payment_reminder_logs
           (notice_id, reminder_type, recipient, status, error_message)
-          VALUES ($1, $2, $3, $4, $5)
+          VALUES (?, ?, ?, ?, ?)
           `,
           [notice.id, reminderType, notice.contact_email, "failed", err.message],
         );

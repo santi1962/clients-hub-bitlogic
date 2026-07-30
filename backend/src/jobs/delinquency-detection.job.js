@@ -5,6 +5,21 @@
 import pool from "../db/pool.js";
 
 export async function delinquencyDetectionDaily() {
+  // Cutoff de 7 días calculado en Node en vez de CURRENT_DATE - INTERVAL
+  // '7 days' (sintaxis Postgres) y `days_overdue` calculado en Node en vez
+  // de `CURRENT_DATE - due_date::date` (resta de fechas exclusiva de
+  // Postgres) — mismo criterio que dashboard.service.js/payment-reminders.job.js.
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const daysOverdue = (dateValue) => {
+    const d = new Date(dateValue);
+    d.setHours(0, 0, 0, 0);
+    return Math.round((today - d) / 86400000);
+  };
+
   // Find overdue notices (> 7 days)
   const noticesQuery = `
     SELECT
@@ -12,16 +27,15 @@ export async function delinquencyDetectionDaily() {
       notice_number,
       client_id,
       amount,
-      due_date,
-      (CURRENT_DATE - due_date::date) as days_overdue
+      due_date
     FROM payment_notices
     WHERE status IN ('pending', 'sent')
-    AND due_date < CURRENT_DATE - INTERVAL '7 days'
+    AND due_date < ?
     ORDER BY due_date ASC
   `;
 
-  const noticesResult = await pool.query(noticesQuery);
-  const overdueNotices = noticesResult.rows;
+  const noticesResult = await pool.query(noticesQuery, [sevenDaysAgo]);
+  const overdueNotices = noticesResult.rows.map((n) => ({ ...n, days_overdue: daysOverdue(n.due_date) }));
 
   // Find overdue services
   const servicesQuery = `
@@ -30,16 +44,15 @@ export async function delinquencyDetectionDaily() {
       domain,
       client_id,
       next_due_date,
-      monthly_price,
-      (CURRENT_DATE - next_due_date::date) as days_overdue
+      monthly_price
     FROM hosting_services
     WHERE status IN ('active', 'suspended', 'overdue', 'pending_payment')
-    AND next_due_date < CURRENT_DATE - INTERVAL '7 days'
+    AND next_due_date < ?
     ORDER BY next_due_date ASC
   `;
 
-  const servicesResult = await pool.query(servicesQuery);
-  const overdueServices = servicesResult.rows;
+  const servicesResult = await pool.query(servicesQuery, [sevenDaysAgo]);
+  const overdueServices = servicesResult.rows.map((s) => ({ ...s, days_overdue: daysOverdue(s.next_due_date) }));
 
   // Get unique overdue clients
   const clientIds = new Set();

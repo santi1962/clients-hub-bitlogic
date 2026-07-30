@@ -257,7 +257,10 @@ CREATE INDEX IF NOT EXISTS idx_hosting_services_next_due  ON hosting_services (n
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS payment_notices (
-  id                  CHAR(36)       NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): billing.service.js createNotice() y
+  -- seeds/003_billing_seed.js ya envían id explícito (randomUUID() de Node)
+  -- desde la Fase DB-3J.
+  id                  CHAR(36)       NOT NULL PRIMARY KEY,
   client_id           CHAR(36)       NOT NULL,
   hosting_service_id  CHAR(36)       NOT NULL,
   notice_number       VARCHAR(50)    COLLATE utf8mb4_bin NOT NULL, -- TEXT+UNIQUE en Postgres -> acotado. Generado en JS vía NEXTVAL, sin cambios de service. Comparación exacta, no case-insensitive.
@@ -290,7 +293,10 @@ CREATE INDEX IF NOT EXISTS idx_payment_notices_due_date   ON payment_notices (du
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS payments (
-  id                  CHAR(36)       NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): billing.service.js (createPayment), el webhook de
+  -- MercadoPago (mercadopago.routes.js) y seeds/003_billing_seed.js ya
+  -- envían id explícito (randomUUID() de Node) desde la Fase DB-3J.
+  id                  CHAR(36)       NOT NULL PRIMARY KEY,
   client_id           CHAR(36)       NOT NULL,
   hosting_service_id  CHAR(36),
   payment_notice_id   CHAR(36),
