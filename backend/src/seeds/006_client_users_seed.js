@@ -3,9 +3,21 @@
  * Creates client users for real portal testing
  */
 import bcrypt from "bcrypt";
+import { randomUUID } from "crypto";
 import pool from "../db/pool.js";
+import config from "../config/index.js";
 
 const PASSWORD = "Cambiar123!";
+
+// ON CONFLICT (email) DO NOTHING (Postgres) vs INSERT IGNORE (MariaDB) —
+// mismo criterio de branching que seeds/001_admin_seed.js.
+const INSERT_CLIENT_USER_SQL =
+  config.db.driver === "mysql"
+    ? `INSERT IGNORE INTO users (id, name, email, password_hash, role, status, client_id)
+       VALUES (?, ?, ?, ?, 'cliente', 'active', ?)`
+    : `INSERT INTO users (id, name, email, password_hash, role, status, client_id)
+       VALUES (?, ?, ?, ?, 'cliente', 'active', ?)
+       ON CONFLICT (email) DO NOTHING`;
 
 const CLIENTS = [
   {
@@ -37,12 +49,13 @@ export async function run() {
     const passwordHash = await bcrypt.hash(PASSWORD, 12);
 
     for (const u of CLIENTS) {
-      const { rowCount } = await client.query(
-        `INSERT INTO users (name, email, password_hash, role, status, client_id)
-         VALUES ($1, $2, $3, 'cliente', 'active', $4)
-         ON CONFLICT (email) DO NOTHING`,
-        [u.name, u.email, passwordHash, u.clientId],
-      );
+      const { rowCount } = await client.query(INSERT_CLIENT_USER_SQL, [
+        randomUUID(),
+        u.name,
+        u.email,
+        passwordHash,
+        u.clientId,
+      ]);
 
       if (rowCount > 0) {
         console.log(`  ✓ ${u.email} / ${PASSWORD}`);

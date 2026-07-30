@@ -10,52 +10,64 @@ export async function adminDashboard(req, res, next) {
   }
 }
 
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 export async function analyticsData(req, res, next) {
   try {
+    // Últimos 6 meses (incluye el actual), calculados en Node en vez de
+    // generate_series()/DATE_TRUNC/TO_CHAR (exclusivos de Postgres) — mismo
+    // criterio que billing.service.js getGlobalSummary() (DB-3J).
+    const now = new Date();
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({ month: MONTH_ABBR[d.getMonth()], year: d.getFullYear(), monthNum: d.getMonth() + 1 });
+    }
+    const cutoff = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+
     const [revenueRes, clientsRes] = await Promise.all([
-      // Ingresos reales por mes (últimos 6 meses) — suma de pagos cobrados
-      pool.query(`
+      // Ingresos reales por mes (últimos 6 meses) — suma de pagos cobrados.
+      // date_trunc/TO_CHAR -> EXTRACT(YEAR/MONTH) agrupado, con el cutoff
+      // bindeado como parámetro; el nombre del mes se arma en JS.
+      pool.query(
+        `
         SELECT
-          TO_CHAR(DATE_TRUNC('month', paid_at), 'Mon') AS month,
-          DATE_TRUNC('month', paid_at) AS month_date,
-          COALESCE(SUM(amount), 0)::float AS revenue
+          EXTRACT(YEAR FROM paid_at) AS year,
+          EXTRACT(MONTH FROM paid_at) AS month,
+          COALESCE(SUM(amount), 0) AS revenue
         FROM payments
-        WHERE
-          paid_at >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
-          AND status = 'paid'
-        GROUP BY DATE_TRUNC('month', paid_at)
-        ORDER BY DATE_TRUNC('month', paid_at)
-      `),
-      // Clientes activos acumulados al cierre de cada mes (últimos 6 meses)
-      pool.query(`
-        WITH months AS (
-          SELECT generate_series(
-            DATE_TRUNC('month', NOW()) - INTERVAL '5 months',
-            DATE_TRUNC('month', NOW()),
-            '1 month'::interval
-          ) AS month_start
-        )
-        SELECT
-          TO_CHAR(m.month_start, 'Mon') AS month,
-          m.month_start AS month_date,
-          COUNT(c.id)::int AS clients
-        FROM months m
-        LEFT JOIN clients c
-          ON c.created_at <= (m.month_start + INTERVAL '1 month' - INTERVAL '1 day')
-          AND c.status = 'active'
-        GROUP BY m.month_start
-        ORDER BY m.month_start
-      `),
+        WHERE paid_at >= ? AND status = 'paid'
+        GROUP BY EXTRACT(YEAR FROM paid_at), EXTRACT(MONTH FROM paid_at)
+      `,
+        [cutoff],
+      ),
+      // Clientes activos acumulados al cierre de cada mes (últimos 6 meses).
+      // El generate_series()+LEFT JOIN con condición de desigualdad no tiene
+      // equivalente portable de una sola query -> una query de conteo por
+      // mes (6 en paralelo), cada una acotada al cierre de ese mes.
+      Promise.all(
+        months.map(({ year, monthNum }) => {
+          const monthEnd = new Date(year, monthNum, 0, 23, 59, 59, 999); // último día del mes
+          return pool.query(
+            `SELECT COUNT(*) AS count FROM clients WHERE created_at <= ? AND status = 'active'`,
+            [monthEnd],
+          );
+        }),
+      ),
     ]);
 
+    const revenueByKey = new Map(
+      revenueRes.rows.map((r) => [`${parseInt(r.year)}-${parseInt(r.month)}`, parseFloat(r.revenue)]),
+    );
+
     res.json({
-      revenue_trend: revenueRes.rows.map((r) => ({
-        month: r.month,
-        revenue: r.revenue,
+      revenue_trend: months.map(({ month, year, monthNum }) => ({
+        month,
+        revenue: revenueByKey.get(`${year}-${monthNum}`) ?? 0,
       })),
-      client_trend: clientsRes.rows.map((r) => ({
-        month: r.month,
-        clients: r.clients,
+      client_trend: months.map(({ month }, i) => ({
+        month,
+        clients: parseInt(clientsRes[i].rows[0].count),
       })),
     });
   } catch (err) {

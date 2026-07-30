@@ -17,13 +17,14 @@ const JOB_SHUTDOWN_WAIT_MS = 8_000;
 
 let httpServer = null;
 let shuttingDown = false;
+const driverLabel = config.db.driver === "mysql" ? "MariaDB" : "PostgreSQL";
 
 async function start() {
   try {
     await pool.query("SELECT 1");
-    log.info("PostgreSQL conectado");
+    log.info(`${driverLabel} conectado`);
   } catch (err) {
-    log.error("No se pudo conectar a PostgreSQL. Verificá DATABASE_URL y que el servidor esté corriendo.", { err });
+    log.error(`No se pudo conectar a ${driverLabel}. Verificá DATABASE_URL y que el servidor esté corriendo.`, { err });
     process.exit(1);
   }
 
@@ -102,7 +103,7 @@ async function shutdown(signal) {
     log.info("Socket.IO cerrado");
 
     await pool.end();
-    log.info("Pool de PostgreSQL cerrado");
+    log.info(`Pool de ${driverLabel} cerrado`);
 
     clearTimeout(forceExitTimer);
     log.info("Apagado ordenado completo");

@@ -3,6 +3,7 @@
  * Sends email reminders for upcoming payment notices
  * Only sends if automation_settings enables the specific reminder type
  */
+import { randomUUID } from "crypto";
 import pool from "../db/pool.js";
 import { emailService } from "../services/email.service.js";
 import { automationSettingsService } from "../services/automation-settings.service.js";
@@ -121,14 +122,16 @@ export async function paymentRemindersDaily() {
           ).catch(() => {});
         }
 
-        // Log reminder sent
+        // Log reminder sent. UUID v4 generado en la app (política definitiva,
+        // Fase DB-3K) — antes dependía del DEFAULT (UUID()) de la columna,
+        // retirado en esta fase.
         await pool.query(
           `
           INSERT INTO payment_reminder_logs
-          (notice_id, reminder_type, recipient, status)
-          VALUES (?, ?, ?, ?)
+          (id, notice_id, reminder_type, recipient, status)
+          VALUES (?, ?, ?, ?, ?)
           `,
-          [notice.id, reminderType, notice.contact_email, "sent"],
+          [randomUUID(), notice.id, reminderType, notice.contact_email, "sent"],
         );
 
         summary.sent++;
@@ -141,10 +144,10 @@ export async function paymentRemindersDaily() {
         await pool.query(
           `
           INSERT INTO payment_reminder_logs
-          (notice_id, reminder_type, recipient, status, error_message)
-          VALUES (?, ?, ?, ?, ?)
+          (id, notice_id, reminder_type, recipient, status, error_message)
+          VALUES (?, ?, ?, ?, ?, ?)
           `,
-          [notice.id, reminderType, notice.contact_email, "failed", err.message],
+          [randomUUID(), notice.id, reminderType, notice.contact_email, "failed", err.message],
         );
       }
     }

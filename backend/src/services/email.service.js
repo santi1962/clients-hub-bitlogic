@@ -3,6 +3,7 @@
  * Handles sending emails via SMTP and logging
  */
 import nodemailer from "nodemailer";
+import { randomUUID } from "crypto";
 import config from "../config/index.js";
 import pool from "../db/pool.js";
 
@@ -85,12 +86,15 @@ async function logEmail({
   sentAt,
 }) {
   try {
+    // UUID v4 generado en la app (política definitiva, Fase DB-3K) — antes
+    // dependía del DEFAULT (UUID()) de la columna, retirado en esta fase.
     await pool.query(
       `INSERT INTO email_logs
-        (type, recipient, subject, status, provider_message_id, error_message,
+        (id, type, recipient, subject, status, provider_message_id, error_message,
          related_client_id, related_notice_id, related_ticket_id, related_domain_id, sent_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
+        randomUUID(),
         type,
         recipient,
         subject,
@@ -209,13 +213,13 @@ export const emailService = {
         t.id, t.ticket_number, t.subject, c.id AS client_id, c.email, c.name, c.company
       FROM support_tickets t
       JOIN clients c ON c.id = t.client_id
-      WHERE t.id = $1
+      WHERE t.id = ?
     `;
 
     const messageQuery = `
       SELECT message, created_at
       FROM support_ticket_messages
-      WHERE id = $1
+      WHERE id = ?
     `;
 
     try {
@@ -281,7 +285,7 @@ export const emailService = {
         c.id AS client_id, c.name, c.email, c.company
       FROM domains d
       JOIN clients c ON c.id = d.client_id
-      WHERE d.id = $1
+      WHERE d.id = ?
     `;
 
     try {
@@ -397,7 +401,7 @@ export const emailService = {
         c.id AS client_id, c.name, c.email, c.company
       FROM hosting_services s
       JOIN clients c ON c.id = s.client_id
-      WHERE s.id = $1
+      WHERE s.id = ?
     `;
 
     try {
@@ -451,7 +455,7 @@ export const emailService = {
         c.id AS client_id, c.name, c.email, c.company
       FROM hosting_services s
       JOIN clients c ON c.id = s.client_id
-      WHERE s.id = $1
+      WHERE s.id = ?
     `;
 
     try {
@@ -549,18 +553,19 @@ export const emailService = {
   } = {}) {
     const conditions = [];
     const params = [];
-    let idx = 1;
 
     if (status) {
-      conditions.push(`status = $${idx++}`);
+      conditions.push(`status = ?`);
       params.push(status);
     }
     if (type) {
-      conditions.push(`type = $${idx++}`);
+      conditions.push(`type = ?`);
       params.push(type);
     }
     if (recipient) {
-      conditions.push(`recipient ILIKE $${idx++}`);
+      // ILIKE (Postgres) -> LOWER()/LIKE, portable en ambos motores — mismo
+      // criterio que clients/tasks/billing.
+      conditions.push(`LOWER(recipient) LIKE LOWER(?)`);
       params.push(`%${recipient}%`);
     }
 
@@ -573,10 +578,13 @@ export const emailService = {
          FROM email_logs
          ${where}
          ORDER BY created_at DESC
-         LIMIT $${idx} OFFSET $${idx + 1}`,
+         LIMIT ? OFFSET ?`,
         [...params, limit, offset],
       ),
-      pool.query(`SELECT COUNT(*) FROM email_logs ${where}`, params),
+      // AS count explícito: Postgres nombra "count" a un COUNT(*) sin alias
+      // por default; MariaDB lo nombra "COUNT(*)" literal — mismo hallazgo
+      // que el resto de los dominios convertidos.
+      pool.query(`SELECT COUNT(*) AS count FROM email_logs ${where}`, params),
     ]);
 
     return {

@@ -1,10 +1,13 @@
 import { Router } from "express";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { statSync, existsSync, mkdirSync } from "fs";
+import { randomUUID } from "crypto";
+import { statSync, existsSync, mkdirSync, writeFileSync, unlinkSync } from "fs";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import pool from "../db/pool.js";
+import config from "../config/index.js";
 import { authRequired } from "../middlewares/authRequired.js";
 import { requireAdmin } from "../middlewares/requireRole.js";
 
@@ -17,6 +20,55 @@ if (!existsSync(BACKUP_DIR)) {
 }
 
 const router = Router();
+
+// Ejecuta el dump real contra el motor activo. `--defaults-extra-file` (chmod
+// 0600, archivo temporal) evita que la contraseña aparezca en la línea de
+// comandos — visible vía `ps`/Task Manager si se pasara como argumento
+// directo (`-p...`). Se borra el archivo temporal en el `finally`, incluso
+// si el dump falla.
+async function runMysqlDump(dbUrl, filePath) {
+  const parsed = new URL(dbUrl);
+  const dbName = parsed.pathname.replace(/^\//, "");
+  const tmpIniPath = path.join(os.tmpdir(), `bitlogic-backup-${randomUUID()}.cnf`);
+  const iniContent =
+    `[client]\n` +
+    `user=${decodeURIComponent(parsed.username || "root")}\n` +
+    `password=${decodeURIComponent(parsed.password || "")}\n` +
+    `host=${parsed.hostname}\n` +
+    `port=${parsed.port || 3306}\n`;
+
+  writeFileSync(tmpIniPath, iniContent, { mode: 0o600 });
+  try {
+    const bin = await pickMariadbDumpBinary();
+    await execAsync(`${bin} --defaults-extra-file="${tmpIniPath}" "${dbName}" > "${filePath}"`);
+  } finally {
+    try {
+      unlinkSync(tmpIniPath);
+    } catch {
+      // ya borrado o inaccesible — no hay credenciales que proteger si no existe
+    }
+  }
+}
+
+let cachedDumpBinary = null;
+// `mariadb-dump` es el binario oficial en MariaDB 10.5+; `mysqldump` es el
+// alias histórico que sigue empaquetado (y el único presente en instalaciones
+// más viejas, ej. XAMPP). Se prueba el primero y se cae al segundo — no se
+// asume cuál está en el PATH del servidor.
+async function pickMariadbDumpBinary() {
+  if (cachedDumpBinary) return cachedDumpBinary;
+  try {
+    await execAsync("mariadb-dump --version");
+    cachedDumpBinary = "mariadb-dump";
+  } catch {
+    cachedDumpBinary = "mysqldump";
+  }
+  return cachedDumpBinary;
+}
+
+async function runPgDump(dbUrl, filePath) {
+  await execAsync(`pg_dump "${dbUrl}" -f "${filePath}" --no-password`);
+}
 
 router.get("/", authRequired, async (req, res, next) => {
   try {
@@ -36,33 +88,39 @@ router.post("/", authRequired, async (req, res, next) => {
   const filename = `backup_${now.toISOString().replace(/[:.]/g, "-")}.sql`;
   const filePath = path.join(BACKUP_DIR, filename);
 
-  // Insert "in_progress" record first
-  const { rows } = await pool.query(
-    `INSERT INTO backups (name, type, status, notes, file_path)
-     VALUES ($1, 'database', 'in_progress', $2, $3)
-     RETURNING id`,
-    [`Backup BD ${now.toLocaleDateString("es-AR")}`, notes || "Backup bajo demanda", filePath],
-  );
-  const backupId = rows[0].id;
+  // UUID v4 generado en la app (política definitiva, Fase DB-3K) — antes
+  // dependía del DEFAULT (UUID()) de la columna, retirado en esta fase.
+  const backupId = randomUUID();
 
-  // Respond immediately, run pg_dump in background
+  // Insert "in_progress" record first
+  await pool.query(
+    `INSERT INTO backups (id, name, type, status, notes, file_path)
+     VALUES (?, ?, 'database', 'in_progress', ?, ?)`,
+    [backupId, `Backup BD ${now.toLocaleDateString("es-AR")}`, notes || "Backup bajo demanda", filePath],
+  );
+
+  // Respond immediately, run the dump in background
   res.status(202).json({ id: backupId, status: "in_progress" });
 
   try {
     const dbUrl = process.env.DATABASE_URL;
     if (!dbUrl) throw new Error("DATABASE_URL no configurada");
 
-    await execAsync(`pg_dump "${dbUrl}" -f "${filePath}" --no-password`);
+    if (config.db.driver === "mysql") {
+      await runMysqlDump(dbUrl, filePath);
+    } else {
+      await runPgDump(dbUrl, filePath);
+    }
 
     const sizeMb = statSync(filePath).size / (1024 * 1024);
     await pool.query(
-      `UPDATE backups SET status = 'success', size_mb = $2 WHERE id = $1`,
-      [backupId, sizeMb.toFixed(2)],
+      `UPDATE backups SET status = 'success', size_mb = ? WHERE id = ?`,
+      [sizeMb.toFixed(2), backupId],
     );
   } catch (err) {
     await pool.query(
-      `UPDATE backups SET status = 'failed', notes = $2 WHERE id = $1`,
-      [backupId, err.message],
+      `UPDATE backups SET status = 'failed', notes = ? WHERE id = ?`,
+      [err.message, backupId],
     ).catch(() => {});
   }
 });
@@ -70,7 +128,7 @@ router.post("/", authRequired, async (req, res, next) => {
 router.get("/:id/download", authRequired, requireAdmin, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT name, file_path, status FROM backups WHERE id = $1`,
+      `SELECT name, file_path, status FROM backups WHERE id = ?`,
       [req.params.id],
     );
     const backup = rows[0];

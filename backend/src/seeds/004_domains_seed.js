@@ -1,4 +1,16 @@
+import { randomUUID } from "crypto";
 import pool from "../db/pool.js";
+import config from "../config/index.js";
+
+// ON CONFLICT DO NOTHING (Postgres) vs INSERT IGNORE (MariaDB) — mismo
+// criterio de branching por config.db.driver que seeds/001_admin_seed.js.
+const INSERT_DOMAIN_SQL =
+  config.db.driver === "mysql"
+    ? `INSERT IGNORE INTO domains (id, client_id, hosting_service_id, domain, registrar, registration_date, expiration_date, annual_cost, customer_price, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    : `INSERT INTO domains (id, client_id, hosting_service_id, domain, registrar, registration_date, expiration_date, annual_cost, customer_price, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT DO NOTHING`;
 
 const CLIENTS = [
   "22222222-2222-2222-2222-000000000001",
@@ -137,22 +149,24 @@ export async function run() {
   try {
     console.log("  Seeding domains…");
 
+    // registration_date: NOW()::date - INTERVAL '2 years' (Postgres-only) ->
+    // calculado en Node, mismo criterio que el resto de las fases.
+    const registrationDate = new Date();
+    registrationDate.setFullYear(registrationDate.getFullYear() - 2);
+
     for (const d of DOMAINS) {
-      await client.query(
-        `INSERT INTO domains (client_id, hosting_service_id, domain, registrar, registration_date, expiration_date, annual_cost, customer_price, status)
-         VALUES ($1, $2, $3, $4, NOW()::date - INTERVAL '2 years', $5, $6, $7, $8)
-         ON CONFLICT DO NOTHING`,
-        [
-          d.client,
-          d.service,
-          d.domain,
-          d.registrar,
-          d.expiration,
-          d.annualCost,
-          d.customerPrice,
-          d.status,
-        ],
-      );
+      await client.query(INSERT_DOMAIN_SQL, [
+        randomUUID(),
+        d.client,
+        d.service,
+        d.domain,
+        d.registrar,
+        registrationDate,
+        d.expiration,
+        d.annualCost,
+        d.customerPrice,
+        d.status,
+      ]);
     }
 
     console.log(`  ✓ Dominios: ${DOMAINS.length} registros`);

@@ -6,6 +6,27 @@
 import pool from "../db/pool.js";
 import config from "../config/index.js";
 
+// ON CONFLICT (id) DO NOTHING (Postgres) vs INSERT IGNORE (MariaDB) — mismo
+// criterio de branching que seeds/001_admin_seed.js. Ambos seeds de esta
+// fase (avisos y pagos) ya mandan id explícito (deterministas, ver N()/P()
+// abajo), así que INSERT IGNORE reproduce exactamente "ya existe -> no hacer
+// nada" sin distinto comportamiento entre motores.
+const INSERT_NOTICE_SQL =
+  config.db.driver === "mysql"
+    ? `INSERT IGNORE INTO payment_notices (id, client_id, hosting_service_id, notice_number, period_month, period_year, issue_date, due_date, amount, status, sent_at, paid_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+    : `INSERT INTO payment_notices (id, client_id, hosting_service_id, notice_number, period_month, period_year, issue_date, due_date, amount, status, sent_at, paid_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT (id) DO NOTHING`;
+
+const INSERT_PAYMENT_SQL =
+  config.db.driver === "mysql"
+    ? `INSERT IGNORE INTO payments (id, client_id, hosting_service_id, payment_notice_id, period_month, period_year, amount, method, status, paid_at, reference)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+    : `INSERT INTO payments (id, client_id, hosting_service_id, payment_notice_id, period_month, period_year, amount, method, status, paid_at, reference)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT (id) DO NOTHING`;
+
 // SETVAL(seq, valor, is_called): Postgres exige el nombre de la secuencia
 // como string literal; MariaDB exige un identificador sin comillas (mismo
 // caso que NEXTVAL, ver billing.service.js) — branching por config.db.driver.
@@ -346,9 +367,7 @@ export async function run() {
     paidAt,
   ] of notices) {
     await pool.query(
-      `INSERT INTO payment_notices (id, client_id, hosting_service_id, notice_number, period_month, period_year, issue_date, due_date, amount, status, sent_at, paid_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-       ON CONFLICT (id) DO NOTHING`,
+      INSERT_NOTICE_SQL,
       [
         id,
         clientId,
@@ -400,12 +419,9 @@ export async function run() {
     paidAt,
     reference,
   ] of payments) {
-    await pool.query(
-      `INSERT INTO payments (id, client_id, hosting_service_id, payment_notice_id, period_month, period_year, amount, method, status, paid_at, reference)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-       ON CONFLICT (id) DO NOTHING`,
-      [id, clientId, serviceId, noticeId, month, year, amount, method, status, paidAt, reference],
-    );
+    await pool.query(INSERT_PAYMENT_SQL, [
+      id, clientId, serviceId, noticeId, month, year, amount, method, status, paidAt, reference,
+    ]);
   }
   console.log("  ✓ Pagos: 12 registros");
 

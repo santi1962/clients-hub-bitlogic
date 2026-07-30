@@ -109,14 +109,12 @@ CREATE SEQUENCE IF NOT EXISTS support_ticket_number_seq START WITH 1 INCREMENT B
 -- utf8mb4_unicode_520_ci de una sola vez, eliminando el problema de raíz.
 
 CREATE TABLE IF NOT EXISTS users (
-  -- DEFAULT (UUID()) se mantiene a propósito: seeds/006_client_users_seed.js
-  -- (seed DEMO, fuera de alcance de esta fase) inserta usuarios sin enviar
-  -- id explícito y depende de este default. La política de la Fase DB-3A
-  -- (generar UUID v4 en Node) ya se aplica en los flujos de producción
-  -- (users.service.js, seeds/001_admin_seed.js) — no se retira el default
-  -- hasta que ese seed demo se actualice o se elimine, documentado acá tal
-  -- como pide la Fase 2.
-  id            CHAR(36)      NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): la política de UUID v4 en Node ya se aplica en
+  -- todos los flujos de producción (users.service.js, seeds/001_admin_seed.js)
+  -- desde la Fase DB-3A. seeds/006_client_users_seed.js (demo) ahora también
+  -- envía id explícito (randomUUID()) desde la Fase DB-3K — ya no bloquea
+  -- retirar este default.
+  id            CHAR(36)      NOT NULL PRIMARY KEY,
   name          TEXT          NOT NULL,
   email         VARCHAR(255)  NOT NULL,                 -- TEXT+UNIQUE en Postgres -> acotado para indexar
   password_hash TEXT          NOT NULL,
@@ -330,14 +328,11 @@ CREATE INDEX IF NOT EXISTS idx_payments_paid_at    ON payments (paid_at);
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS domains (
-  -- DEFAULT (UUID()) se mantiene a propósito (Fase DB-3E): a diferencia de
-  -- clients/hosting_plans/hosting_services/audit_logs,
-  -- seeds/004_domains_seed.js (seed DEMO, fuera de alcance de esta fase)
-  -- inserta dominios sin id explícito y depende de este default — mismo
-  -- caso que users.id en la Fase DB-3A. domains.service.js createDomain (el
-  -- flujo real de la app) ya genera id explícito con crypto.randomUUID().
-  -- No se retira el default hasta que ese seed demo se actualice o elimine.
-  id                  CHAR(36)      NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): domains.service.js createDomain() ya genera id
+  -- explícito con crypto.randomUUID() desde la Fase DB-3E. seeds/004_domains_seed.js
+  -- (demo) ahora también envía id explícito desde la Fase DB-3K — ya no
+  -- bloquea retirar este default.
+  id                  CHAR(36)      NOT NULL PRIMARY KEY,
   client_id           CHAR(36)      NOT NULL,
   hosting_service_id  CHAR(36),
   domain              VARCHAR(255)  NOT NULL,            -- TEXT+UNIQUE en Postgres -> acotado
@@ -505,7 +500,9 @@ CREATE INDEX IF NOT EXISTS idx_internal_tasks_created_at  ON internal_tasks (cre
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS email_logs (
-  id                   CHAR(36)  NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): logEmail() (email.service.js) ya envía id explícito
+  -- (randomUUID() de Node) desde la Fase DB-3K.
+  id                   CHAR(36)  NOT NULL PRIMARY KEY,
   type                 TEXT      NOT NULL,
   recipient            TEXT      NOT NULL,
   subject              TEXT      NOT NULL,
@@ -626,7 +623,9 @@ VALUES
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS payment_reminder_logs (
-  id            CHAR(36)     NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): payment-reminders.job.js ya envía id explícito
+  -- (randomUUID() de Node) desde la Fase DB-3K.
+  id            CHAR(36)     NOT NULL PRIMARY KEY,
   notice_id     CHAR(36)     NOT NULL,
   reminder_type VARCHAR(50)  NOT NULL,                  -- TEXT en Postgres, parte de un UNIQUE INDEX compuesto -> acotado
   recipient     TEXT         NOT NULL,
@@ -705,7 +704,9 @@ CREATE TABLE IF NOT EXISTS email_templates (
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS backups (
-  id         CHAR(36)      NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  -- Sin DEFAULT (UUID()): backups.routes.js ya envía id explícito
+  -- (randomUUID() de Node) desde la Fase DB-3K.
+  id         CHAR(36)      NOT NULL PRIMARY KEY,
   name       TEXT          NOT NULL,
   type       TEXT          NOT NULL DEFAULT 'database',
   size_mb    DECIMAL(12,2) NOT NULL DEFAULT 0,
