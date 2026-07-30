@@ -1,8 +1,8 @@
-# Migración PostgreSQL → MariaDB — estado y guía
+# Migración PostgreSQL → MariaDB — historial de fases (DB-0 a DB-5A)
 
-**Decisión definitiva del usuario:** el motor productivo de Bitlogic Client Hub pasa a ser MariaDB/MySQL (el VPS real usa MariaDB 11.4.10 vía HestiaCP). PostgreSQL sigue siendo el motor **activo hoy** — esta migración se hace de a un dominio funcional por vez, sin apagar Postgres hasta que todos los módulos y los datos reales estén validados contra MariaDB.
+**MIGRACIÓN CERRADA (Fase DB-5A): MariaDB 11.4 es el único motor soportado.** PostgreSQL fue removido por completo del runtime — `pg` ya no es dependencia, `db/pool.js` usa solo `mysql2/promise`, y `config/index.js` rechaza `postgresql://` con un error fatal al arrancar. Este documento describe **cómo se llegó hasta acá** (fases DB-0 a DB-3K, conversión dual-driver dominio por dominio) — es historial técnico válido, pero **no es la guía para levantar el proyecto hoy**. Para eso, ver `README.md` (setup local) y `docs/PRODUCTION_STATUS.md` (estado vigente). Ver la sección "Fase DB-5A — cierre de la migración" al final de este documento.
 
-**Código de aplicación 100% ejecutable contra MariaDB (Fase DB-3K cerrada).** Ya no queda ningún archivo de runtime (services/controllers/routes/jobs/middlewares/app.js/server.js) con sintaxis SQL exclusiva de Postgres sin resolver — verificado con un test de guardia automatizado (`test/no-postgres-runtime-sql.test.js`) y con un smoke test que arranca `server.js` como proceso real contra una MariaDB descartable y ejercita todas las familias de rutas (`test/full-app-mariadb-smoke.test.js`). **Aun así, no cambiar `DATABASE_URL` a `mysql://` en ningún ambiente real todavía**: falta migrar los datos reales (fase siguiente, fuera del alcance de DB-3K) y validar contra el Postgres real de producción (sin credenciales en este entorno de trabajo). PostgreSQL se conserva como motor activo y como compatibilidad/rollback temporal.
+**Código de aplicación 100% ejecutable contra MariaDB (Fase DB-3K cerrada, previa al retiro final de Postgres).** Ya no queda ningún archivo de runtime (services/controllers/routes/jobs/middlewares/app.js/server.js) con sintaxis SQL exclusiva de Postgres sin resolver — verificado con un test de guardia automatizado (`test/no-postgres-runtime-sql.test.js`) y con un smoke test que arranca `server.js` como proceso real contra una MariaDB descartable y ejercita todas las familias de rutas (`test/full-app-mariadb-smoke.test.js`). Esto era, en su momento (antes de DB-5A), una capa dual-driver con Postgres todavía activo en producción — ese estado intermedio ya no existe, ver la sección de cierre al final.
 
 ## Empezá por acá (si estás retomando esto, en esta máquina o en otra)
 
@@ -410,6 +410,23 @@ Sin `MARIADB_TEST_URL`, `test/auth-mariadb.test.js` se saltea (no falla). Ver `d
 - ~~Versión real del VPS no probada~~ — validado contra MariaDB 11.4.12 real (Docker), no solo 10.4.
 - ~~Triggers no idempotentes~~ — corregido con `DROP TRIGGER IF EXISTS`.
 - ~~Fixtures con escrituras podían auto-ejecutarse por descubrimiento de `node --test`~~ — protección estructural (glob explícito) + guard, con test de regresión (`test/fixture-safety.test.js`).
+
+## Fase DB-5A — cierre de la migración
+
+Con esta fase, la migración descripta en todo este documento **queda cerrada**. MariaDB 11.4 pasa a ser el único motor soportado en el código de la aplicación:
+
+- `backend/src/db/pool.js` usa exclusivamente `mysql2/promise` — la capa dual-driver (`pg`/`mysql2`) descripta en las secciones anteriores fue removida.
+- `backend/src/config/index.js` acepta `DATABASE_URL` con esquema `mysql://`/`mysql2://`, o las variables discretas `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` — y rechaza explícitamente `postgresql://` con un error fatal al arrancar, en vez de aceptarlo como motor válido.
+- El paquete `pg` fue desinstalado de `backend/package.json`/`package-lock.json`.
+- El concepto de `config.db.driver` (branching por motor, usado en varios de los hallazgos documentados arriba — `NEXTVAL`/`SETVAL`, `email_templates` upsert) está retirado del todo: ya no hay dos motores entre los que bifurcar.
+- `backend/db/schema.sql` es ahora la única fuente de verdad del schema — sin ningún `DEFAULT (UUID())` restante (incluido `automation_settings.id`, el último caso documentado como excepción en DB-3K).
+- Las 16 migraciones históricas de Postgres se movieron (`git mv`, historia preservada) a `backend/db/archive/postgresql-migrations/`, con su propio README aclarando que son referencia histórica, no ejecutable.
+- El runner viejo de migraciones Postgres (`backend/src/db/migrate.js`, script `migrate`) fue eliminado. El setup de schema hoy es `backend/scripts/apply-mariadb-schema.mjs` (`npm run db:schema:mariadb`).
+- La suite de tests corre 198/198 verde, 0 skipped, contra MariaDB — ver `docs/TESTING.md`.
+
+**Qué NO incluyó esta fase:** no hubo migración de datos reales de producción (no existían, o no importaba conservarlos — decisión del usuario) ni deploy al VPS. El toolkit de migración de datos construido en una fase anterior (`backend/scripts/mariadb-migration/`, documentado en `docs/MARIADB_DATA_MIGRATION.md`) quedó fuera de este trabajo — sigue existiendo solo en la rama histórica `migration/mariadb-real-data-v1`, no en `main` ni en la rama de esta fase. La base de producción, cuando se despliegue, se crea fresca directamente en MariaDB (Hestia/phpMyAdmin), sin ningún dato previo que migrar.
+
+Para instrucciones de setup vigentes, usar `README.md` y `docs/PRODUCTION_STATUS.md` — no este documento, que queda como historial de cómo se hizo la conversión de código.
 
 ## Referencia
 
