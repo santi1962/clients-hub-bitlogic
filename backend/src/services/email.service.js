@@ -61,7 +61,7 @@ function fillTemplate(text, vars) {
  * a DEFAULT_TEMPLATES si el admin todavía no lo personalizó desde /plantillas.
  */
 async function renderTemplate(templateId, vars) {
-  const { rows } = await pool.query(`SELECT subject, body FROM email_templates WHERE id = $1`, [
+  const { rows } = await pool.query(`SELECT subject, body FROM email_templates WHERE id = ?`, [
     templateId,
   ]);
   const template = rows[0] ?? DEFAULT_TEMPLATES[templateId];
@@ -89,7 +89,7 @@ async function logEmail({
       `INSERT INTO email_logs
         (type, recipient, subject, status, provider_message_id, error_message,
          related_client_id, related_notice_id, related_ticket_id, related_domain_id, sent_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         type,
         recipient,
@@ -148,7 +148,7 @@ export const emailService = {
       FROM payment_notices n
       JOIN clients c ON c.id = n.client_id
       LEFT JOIN hosting_services hs ON hs.id = n.hosting_service_id
-      WHERE n.id = $1
+      WHERE n.id = ?
     `;
 
     try {
@@ -341,7 +341,7 @@ export const emailService = {
       FROM payments p
       JOIN clients c ON c.id = p.client_id
       LEFT JOIN hosting_services hs ON hs.id = p.hosting_service_id
-      WHERE p.id = $1
+      WHERE p.id = ?
     `;
 
     try {
