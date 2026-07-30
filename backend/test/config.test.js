@@ -12,7 +12,7 @@ const FIXTURE = path.join(__dirname, "fixtures", "load-config.mjs");
 // falsos/de prueba, nunca credenciales reales.
 const VALID_PROD_ENV = {
   NODE_ENV: "production",
-  DATABASE_URL: "postgresql://fake:fake@localhost:5432/fake_test_db",
+  DATABASE_URL: "mysql://fake:fake@localhost:3306/fake_test_db",
   JWT_ACCESS_SECRET: "test-access-secret-not-real-0123456789",
   JWT_REFRESH_SECRET: "test-refresh-secret-not-real-0123456789",
   CORS_ORIGIN: "https://example.test",
@@ -79,11 +79,29 @@ test("config: los secretos nunca aparecen en la salida ni en los mensajes de err
   const result = runFixture({
     CORS_ORIGIN: "",
     JWT_ACCESS_SECRET: secretMarker,
-    DATABASE_URL: `postgresql://user:${secretMarker}@localhost:5432/db`,
+    DATABASE_URL: `mysql://user:${secretMarker}@localhost:3306/db`,
   });
   assert.notEqual(result.status, 0);
   assert.doesNotMatch(result.stdout, new RegExp(secretMarker));
   assert.doesNotMatch(result.stderr, new RegExp(secretMarker));
+});
+
+test("config: rechaza DATABASE_URL con esquema postgresql:// con un error claro", () => {
+  const result = runFixture({ DATABASE_URL: "postgresql://user:pass@localhost:5432/db" });
+  assert.notEqual(result.status, 0, "postgresql:// ya no es un esquema soportado");
+  assert.match(result.stderr, /postgresql/i);
+});
+
+test("config: acepta variables discretas DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD en vez de DATABASE_URL", () => {
+  const result = runFixture({
+    DATABASE_URL: "",
+    DB_HOST: "localhost",
+    DB_PORT: "3306",
+    DB_NAME: "fake_test_db",
+    DB_USER: "fake",
+    DB_PASSWORD: "fake",
+  });
+  assert.equal(result.status, 0, `debería arrancar limpio con variables discretas; stderr: ${result.stderr}`);
 });
 
 test("config: producción con todas las variables requeridas arranca limpio", () => {

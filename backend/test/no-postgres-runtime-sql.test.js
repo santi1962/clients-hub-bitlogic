@@ -1,35 +1,19 @@
-// Test de guardia (Fase DB-3K): ningún archivo de RUNTIME (services,
-// controllers, routes, jobs, middlewares, app.js/server.js/socket.js) debe
-// contener sintaxis SQL exclusiva de PostgreSQL sin resolver. No es un
-// linter genérico de SQL — es una lista puntual de los patrones que esta
-// migración encontró y convirtió, más las excepciones explícitas que el
-// propio proyecto documenta (ver docs/MARIADB_MIGRATION.md).
+// Test de guardia (Fase DB-3K, endurecido en DB-5A): ningún archivo de
+// RUNTIME (services, controllers, routes, jobs, middlewares,
+// app.js/server.js/socket.js, db/pool.js, db/reset.js) debe contener
+// sintaxis SQL exclusiva de PostgreSQL, un import de `pg`, ni branching por
+// `config.db.driver` (ya no existe — MariaDB es el único motor desde la
+// Fase DB-5A). No es un linter genérico de SQL — es una lista puntual de
+// los patrones que esta migración encontró y convirtió.
 //
-// Alcance: backend/src/{services,controllers,routes,jobs,middlewares}/**/*.js
-// y backend/src/{app,server,socket}.js. Deliberadamente NO escanea:
-//   - backend/src/db/pool.js: es la capa de compatibilidad en sí — traduce
-//     `?` a `$N` para Postgres, y sus comentarios internos mencionan `$N`
-//     como parte de esa explicación.
-//   - backend/src/migrations/*.sql: migraciones históricas de Postgres,
-//     nunca se ejecutan contra MariaDB, archivadas a propósito (no se tocan
-//     ni se migran, ver "No archivar todavía migraciones PostgreSQL").
-//   - backend/src/seeds/**, backend/src/scripts/**, backend/src/db/reset.js:
-//     no son runtime productivo (no los importa app.js/server.js, se
-//     invocan a mano por un humano) — clasificados aparte en
-//     docs/MARIADB_MIGRATION.md (Fase DB-3K, sección de seeds/scripts).
-//
-// Dos categorías de patrón:
-//   1. NEVER_ALLOWED: no tienen NINGÚN caso legítimo de branching en este
-//      proyecto — todos ya tienen un reemplazo portable de una sola query
-//      (placeholders `?`, LOWER()/LIKE, CASE WHEN, fechas en Node, etc.).
-//      Cualquier aparición fuera de un comentario es una regresión real.
-//   2. ALLOWED_IF_BRANCHED: la única sintaxis que SÍ varía legítimamente por
-//      motor (ON CONFLICT/ON DUPLICATE KEY UPDATE, NEXTVAL/SETVAL con o sin
-//      comillas) — permitida únicamente si el archivo contiene la marca de
-//      branching real (`config.db.driver`), para no aceptar código muerto
-//      sin bifurcar. No valida que el branching esté bien armado línea por
-//      línea (para eso están los tests de integración MariaDB reales de
-//      cada dominio) — solo que no haya sintaxis Postgres-only "suelta".
+// Alcance: backend/src/{services,controllers,routes,jobs,middlewares}/**/*.js,
+// backend/src/{app,server,socket}.js, backend/src/db/{pool,reset}.js.
+// Deliberadamente NO escanea:
+//   - backend/db/archive/postgresql-migrations/*.sql: migraciones
+//     históricas de Postgres, ya no ejecutables, archivadas a propósito.
+//   - backend/src/seeds/**, backend/src/scripts/**: no son runtime
+//     productivo (no los importa app.js/server.js, se invocan a mano por un
+//     humano) — clasificados aparte en docs/MARIADB_MIGRATION.md.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
@@ -38,11 +22,10 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(__dirname, "..", "src");
+const ROOT = path.join(__dirname, "..");
 
 const SCAN_DIRS = ["services", "controllers", "routes", "jobs", "middlewares"];
 const SCAN_FILES = ["app.js", "server.js", "socket.js"];
-
-const EXCLUDED_FILES = new Set([path.join(SRC, "db", "pool.js")]);
 
 const NEVER_ALLOWED = [
   { name: "placeholder posicional $N", re: /\$\d+\b/ },
@@ -54,12 +37,12 @@ const NEVER_ALLOWED = [
   { name: "cast :: de Postgres", re: /::[a-zA-Z]/ },
   { name: "INTERVAL 'literal'", re: /\bINTERVAL\s+'/i },
   { name: "ANY(...)", re: /\bANY\s*\(/ },
-];
-
-const ALLOWED_IF_BRANCHED = [
+  // Desde la Fase DB-5A (MariaDB-only) ya no hay branching por
+  // config.db.driver en ningún archivo — ON CONFLICT es Postgres-only sin
+  // excepción.
   { name: "ON CONFLICT", re: /\bON CONFLICT\b/i },
-  { name: "NEXTVAL(...)", re: /\bNEXTVAL\s*\(/i },
-  { name: "SETVAL(...)", re: /\bSETVAL\s*\(/i },
+  { name: "import de pg (motor retirado)", re: /from\s+["']pg["']/ },
+  { name: "config.db.driver (branching retirado)", re: /config\.db\.driver/ },
 ];
 
 function listJsFiles(dir) {
@@ -82,19 +65,20 @@ function isCommentLine(trimmed) {
   return trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*");
 }
 
-test("ningún archivo runtime contiene SQL PostgreSQL-only sin resolver ni sin branching documentado", () => {
+test("ningún archivo runtime contiene SQL/imports PostgreSQL-only", () => {
+  // Desde la Fase DB-5A el pool en sí (db/pool.js) también es MariaDB-only,
+  // así que ya no hace falta excluirlo del barrido.
   const files = [];
   for (const d of SCAN_DIRS) files.push(...listJsFiles(path.join(SRC, d)));
   for (const f of SCAN_FILES) files.push(path.join(SRC, f));
+  files.push(path.join(SRC, "db", "pool.js"), path.join(SRC, "db", "reset.js"));
 
   assert.ok(files.length > 20, "el barrido debe cubrir al menos las decenas de archivos runtime esperadas (si esto falla, revisar SCAN_DIRS/SCAN_FILES)");
 
   const violations = [];
 
   for (const file of files) {
-    if (EXCLUDED_FILES.has(file)) continue;
     const content = readFileSync(file, "utf8");
-    const hasBranchMarker = /config\.db\.driver/.test(content);
     const relPath = path.relative(SRC, file);
 
     content.split("\n").forEach((line, i) => {
@@ -106,19 +90,31 @@ test("ningún archivo runtime contiene SQL PostgreSQL-only sin resolver ni sin b
           violations.push(`${relPath}:${i + 1} — ${name}: ${trimmed.slice(0, 120)}`);
         }
       }
-      for (const { name, re } of ALLOWED_IF_BRANCHED) {
-        if (re.test(line) && !hasBranchMarker) {
-          violations.push(`${relPath}:${i + 1} — ${name} sin branching por config.db.driver en el archivo: ${trimmed.slice(0, 120)}`);
-        }
-      }
     });
   }
 
-  assert.deepEqual(violations, [], `SQL PostgreSQL-only encontrado en runtime:\n${violations.join("\n")}`);
+  assert.deepEqual(violations, [], `SQL/imports PostgreSQL-only encontrado en runtime:\n${violations.join("\n")}`);
 });
 
-test("las excepciones declaradas siguen existiendo (si se borra pool.js el test de arriba pasaría por razones equivocadas)", () => {
-  for (const excluded of EXCLUDED_FILES) {
-    assert.doesNotThrow(() => readFileSync(excluded, "utf8"), `${excluded} debería existir`);
+test("pg no aparece como dependencia directa en package.json", () => {
+  const pkg = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8"));
+  assert.equal(pkg.dependencies?.pg, undefined, "pg no debería estar en dependencies — MariaDB es el único motor soportado");
+  assert.equal(pkg.devDependencies?.pg, undefined, "pg no debería estar en devDependencies");
+});
+
+test("no queda ningún postgresql:// activo en los .env.example", () => {
+  for (const envFile of [".env.example", ".env.production.example"]) {
+    const full = path.join(ROOT, envFile);
+    let content;
+    try {
+      content = readFileSync(full, "utf8");
+    } catch {
+      continue;
+    }
+    const activeLines = content
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("#"));
+    const hasActivePostgres = activeLines.some((line) => /postgres(ql)?:\/\//.test(line));
+    assert.equal(hasActivePostgres, false, `${envFile} no debería tener una línea activa con postgresql://`);
   }
 });

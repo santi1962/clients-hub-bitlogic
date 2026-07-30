@@ -143,9 +143,11 @@ test("settings: PUT /company con rol super_admin es permitido y audita al usuari
 
   assert.equal(res.status, 200);
   assert.ok(auditParams, "debería haberse llamado al insert de audit_logs");
-  assert.equal(auditParams[0], "user-1", "user_id debe ser el usuario real, no null");
-  assert.equal(auditParams[1], "Super Admin Real", "user_name debe ser el usuario real, no System");
-  assert.notEqual(auditParams[1], "System");
+  // Orden real de columnas: (id, user_id, user_name, ...) — id es un UUID v4
+  // generado en la app (audit.service.js), no el usuario.
+  assert.equal(auditParams[1], "user-1", "user_id debe ser el usuario real, no null");
+  assert.equal(auditParams[2], "Super Admin Real", "user_name debe ser el usuario real, no System");
+  assert.notEqual(auditParams[2], "System");
 });
 
 test("settings: GET /templates con rol admin es permitido (Plantillas es super_admin+admin)", async (t) => {
