@@ -7,9 +7,10 @@
 ## Empezá por acá (si estás retomando esto, en esta máquina o en otra)
 
 - **Rama:** el trabajo de migración vive mergeado en `main` (el histórico `migration/mariadb` de `origin` quedó contenido enteramente dentro de `main` desde el merge `70fec99`, que además trajo hardening/security/scheduler). Trabajar directo sobre `main`.
-- **Última fase cerrada:** DB-3K (**cierre de brechas de compatibilidad**, previo a migrar datos reales): auditoría exhaustiva final de todo `backend/src`, conversión de todo lo que seguía siendo Postgres-only en runtime (incluidos 2 hallazgos que las fases anteriores no habían detectado — ver "Hallazgos de la Fase DB-3K" más abajo), política de UUID cerrada en todas las tablas productivas, backups convertidos a `mariadb-dump`/`mysqldump`, y un smoke test de aplicación completa contra MariaDB real.
+- **Última fase cerrada:** DB-4A (**toolkit de migración de datos reales**, rama `migration/mariadb-real-data-v1`, sin mergear a `main` todavía): herramientas de auditoría/backup/exportación/importación/validación/pruebas funcionales, construidas y validadas de punta a punta contra un par de bases sintéticas (sin credenciales del Postgres real disponibles en este entorno). Ver `docs/MARIADB_DATA_MIGRATION.md` para el detalle completo — **la migración de los datos reales todavía no se ejecutó**.
+- **Fase anterior:** DB-3K (**cierre de brechas de compatibilidad**, ya en `main`): auditoría exhaustiva final de todo `backend/src`, conversión de todo lo que seguía siendo Postgres-only en runtime (incluidos 2 hallazgos que las fases anteriores no habían detectado — ver "Hallazgos de la Fase DB-3K" más abajo), política de UUID cerrada en todas las tablas productivas, backups convertidos a `mariadb-dump`/`mysqldump`, y un smoke test de aplicación completa contra MariaDB real.
 - **Qué está hecho:** capa de compatibilidad dual-driver (`pg`/`mysql2`) en `backend/src/db/pool.js`, schema MariaDB consolidado y con collation normalizada (`backend/db/schema.sql`, validado contra MariaDB 11.4 real), **todos** los dominios funcionales convertidos y probados contra ambos motores, y ahora también **cero SQL Postgres-only en ningún archivo de runtime** (confirmado por un test de guardia automatizado, no solo por revisión manual).
-- **Qué falta:** ningún código de aplicación. Queda **migrar los datos reales** (próxima fase, fuera del alcance de DB-3K — esta fase deliberadamente no tocó ningún dato real ni el VPS) y validar contra el Postgres real de producción (sin credenciales disponibles en este entorno de trabajo). Al final: deploy/VPS/push.
+- **Qué falta:** ningún código de aplicación. El toolkit de migración de datos (DB-4A) ya existe y está validado contra datos sintéticos — falta **ejecutarlo contra los datos reales** (requiere credenciales del Postgres real, no disponibles en este entorno) y, recién después, planear el corte de motor. Al final: deploy/VPS/push.
 - **Antes de tocar código nuevo:** correr `cd backend && npm test` (Postgres) y, si hay una MariaDB descartable a mano, `MARIADB_TEST_URL=mysql://... npm test` (ver la sección "Cómo probar contra ambos motores" más abajo) — para confirmar que se arranca desde un estado verde. **Ojo:** en un checkout nuevo, sin `backend/.env` con credenciales de un Postgres local real, 3 tests van a fallar siempre — ver "Línea base de tests" más abajo, no es una regresión.
 - El resto de este documento es la referencia técnica completa (decisiones de conversión, política de UUID, collation, cómo levantar una MariaDB de prueba, riesgos). Esta sección de arriba es solo el punto de entrada rápido.
 
@@ -410,6 +411,15 @@ Sin `MARIADB_TEST_URL`, `test/auth-mariadb.test.js` se saltea (no falla). Ver `d
 - ~~Versión real del VPS no probada~~ — validado contra MariaDB 11.4.12 real (Docker), no solo 10.4.
 - ~~Triggers no idempotentes~~ — corregido con `DROP TRIGGER IF EXISTS`.
 - ~~Fixtures con escrituras podían auto-ejecutarse por descubrimiento de `node --test`~~ — protección estructural (glob explícito) + guard, con test de regresión (`test/fixture-safety.test.js`).
+
+## Migración de datos reales (Fase DB-4A)
+
+El toolkit de auditoría/backup/exportación/importación/validación de datos
+reales (`backend/scripts/mariadb-migration/`) vive documentado en detalle
+en **`docs/MARIADB_DATA_MIGRATION.md`** — no se duplica acá. Resumen: código
+completo y validado de punta a punta contra un par de bases sintéticas;
+ejecución contra los datos reales todavía pendiente (sin credenciales del
+Postgres real en este entorno de trabajo).
 
 ## Referencia
 

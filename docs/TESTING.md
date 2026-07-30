@@ -51,6 +51,8 @@ backend/test/
 ├── billing-mariadb.test.js         # Fase DB-3J: integración REAL contra MariaDB, aplica el schema.sql COMPLETO (opcional, ver MARIADB_TEST_URL abajo)
 ├── db3k-runtime-gaps-domain.test.js # Fase DB-3K: las 5 queries de email.service.js sin convertir (incluye listLogs, hallazgo nuevo), UUID v4 de payment_reminder_logs, analyticsData (dashboard.controller.js, nunca convertido en DB-3I)
 ├── no-postgres-runtime-sql.test.js  # Fase DB-3K: test de guardia — escanea todo el runtime en busca de sintaxis Postgres-only sin resolver (ver sección dedicada abajo)
+├── mariadb-migration-transform-domain.test.js  # Fase DB-4A: transformaciones puras (UUID/NUMERIC/fechas/JSON/boolean/texto), checksum, orden de tablas, colisiones case-insensitive — sin base de datos
+├── mariadb-migration-mariadb.test.js  # Fase DB-4A: integración REAL contra MariaDB — rollback de lote, duplicados, checksum corrupto, manifest inválido (opcional, ver MARIADB_TEST_URL abajo)
 ├── full-app-mariadb-smoke.test.js  # Fase DB-3K: integración REAL — arranca server.js como proceso de SO completo contra MariaDB (opcional, ver MARIADB_TEST_URL abajo)
 ├── fixture-safety.test.js          # Fase DB-2.5: verifica la protección estructural contra el incidente de auto-discovery (ver más abajo)
 ├── helpers/
@@ -78,7 +80,7 @@ backend/test/
 
 `npm test` **no da 100% verde hoy, y eso es esperado**: quedan 3 fallos dependientes del entorno (2 en `health.test.js`, 1 en `settings-plans-authorization.test.js`), todos por la misma causa — no hay `backend/.env` con credenciales de un Postgres real en este checkout, y esos 3 tests (a diferencia de casi toda la suite, mockeada) hacen una query real contra la DB. Ver la sección "Línea base de tests" en `docs/MARIADB_MIGRATION.md` para la causa exacta de cada uno (confirmada con logs reales, no asumida) y por qué un reporte anterior de "90/98 pass" resultaba ambiguo sin desglosar los `skip`. Los 2 fallos de `uploads.test.js` que existían en esa misma línea base **ya se corrigieron** (Fase DB-3D: faltaba crear `backend/uploads/tickets/`, mismo patrón que ya usa `settings.routes.js` para `uploads/logos`).
 
-Línea base esperada de un checkout nuevo: **195 tests, 192 pass / 3 fail / 0 skip contra MariaDB** (con `MARIADB_TEST_URL`); **181 pass / 3 fail / 11 skip contra Postgres** (sin ella, los 11 tests de integración MariaDB se saltean).
+Línea base esperada de un checkout nuevo (rama `migration/mariadb-real-data-v1`): **219 tests, 216 pass / 3 fail / 0 skip contra MariaDB** (con `MARIADB_TEST_URL`); **204 pass / 3 fail / 12 skip contra Postgres** (sin ella, los 12 tests de integración MariaDB se saltean).
 
 ## Prueba de integración real contra MariaDB (todos los dominios funcionales + aplicación completa)
 
@@ -134,6 +136,7 @@ Este test **no es cosmético**: durante su desarrollo detectó `emailService.lis
 - No hay pruebas de carga/performance ni de concurrencia real de PostgreSQL (el pool se mockea en los tests que lo necesitan).
 - La cobertura de código no se mide (no hay `c8`/`nyc` configurado). Los tests actuales (195, contando las once pruebas de integración MariaDB, el test de guardia de sintaxis y la de protección de fixtures) apuntan a los hallazgos de seguridad encontrados y a los endpoints más sensibles, no a cobertura exhaustiva de todos los controllers/servicios.
 - **MercadoPago real (checkout/webhook contra la API real con credenciales de sandbox o producción) no se prueba** — mismo motivo que siempre: `mercadopago-webhook.test.js` prueba solo la verificación de firma (sin red), y `billing-mariadb.test.js` prueba solo la capa de persistencia alrededor (placeholders, UUID, `INSERT IGNORE`) con datos simulados, no la integración real con MercadoPago.
+- **El migrador de datos reales (Fase DB-4A, `backend/scripts/mariadb-migration/`) nunca corrió contra el PostgreSQL real de este entorno** — sin credenciales disponibles, se validó de punta a punta contra un par de bases sintéticas (Postgres + MariaDB descartables). Ver `docs/MARIADB_DATA_MIGRATION.md` para el detalle completo de esa validación.
 - **El envío real de emails disparado desde Billing (`sendNotice`, confirmación de pago) no se prueba end-to-end** — no hay SMTP configurado en este entorno de test (mismo motivo que el resto de la suite, ver más abajo). `billing-mariadb.test.js` llama a `billingService.sendNotice()` directamente (no vía el endpoint HTTP `POST /notices/:id/send`, que si fallara el envío de email no marcaría el aviso como enviado) para validar el SQL/rowCount sin depender de SMTP.
 - `settings-plans-authorization.test.js` solo prueba los roles definidos en `users.role` (`super_admin`, `admin`, `soporte`, `finanzas`, `cliente`) contra la política real ya documentada en `docs/PRODUCTION_STATUS.md` — no cubre `soporte` explícitamente en cada endpoint (no tiene acceso a ninguno de los dos módulos, se infiere del mismo mecanismo que se prueba para `finanzas`/`cliente`).
 
