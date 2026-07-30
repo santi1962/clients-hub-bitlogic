@@ -3,16 +3,11 @@
  * Manages configuration for automated jobs
  */
 import pool from "../db/pool.js";
-import config from "../config/index.js";
 
 // `key` es una columna reservada en MariaDB (palabra clave KEY) — el schema
 // ya la escapa con backticks en la definición de columna, y las queries acá
-// necesitan lo mismo para referenciarla en SELECT/WHERE/ORDER BY. Backticks
-// no son sintaxis válida en Postgres (ahí "key" no es palabra reservada, no
-// hace falta escaparlo). Es el mismo tipo de caso que ON CONFLICT vs ON
-// DUPLICATE KEY UPDATE (ver settings.controller.js) — varía por
-// config.db.driver en vez de una sola query con `?` para ambos motores.
-const KEY_COL = config.db.driver === "mysql" ? "`key`" : "key";
+// necesitan lo mismo para referenciarla en SELECT/WHERE/ORDER BY.
+const KEY_COL = "`key`";
 
 // `value` es jsonb en Postgres (pg lo deserializa a objeto automáticamente)
 // y JSON (alias de LONGTEXT) en MariaDB, donde mysql2 devuelve el string

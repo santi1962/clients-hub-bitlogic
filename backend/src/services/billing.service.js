@@ -6,21 +6,12 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { Jimp } from "jimp";
 import { getCompanySettings } from "./settings.service.js";
-import config from "../config/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// NEXTVAL(seq) no tiene sintaxis común: Postgres exige el nombre de la
-// secuencia como string literal (`nextval('seq')`, tipeado regclass);
 // MariaDB exige un identificador sin comillas (`NEXTVAL(seq)`), igual que ya
-// se usa dentro del trigger de ticket_number. Ninguna de las dos formas
-// funciona en el otro motor -> branching real por config.db.driver, mismo
-// criterio que ON CONFLICT/ON DUPLICATE KEY UPDATE (email_templates) y la
-// columna reservada `key` (automation_settings).
-const NEXTVAL_NOTICE_SEQ_SQL =
-  config.db.driver === "mysql"
-    ? `SELECT NEXTVAL(payment_notice_number_seq) AS n`
-    : `SELECT NEXTVAL('payment_notice_number_seq') AS n`;
+// se usa dentro del trigger de ticket_number.
+const NEXTVAL_NOTICE_SEQ_SQL = `SELECT NEXTVAL(payment_notice_number_seq) AS n`;
 
 // ─────────────────────────────────────────────────────────────
 // Formatters

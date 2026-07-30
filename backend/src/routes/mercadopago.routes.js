@@ -13,21 +13,12 @@ import config from "../config/index.js";
 import { authRequired } from "../middlewares/authRequired.js";
 import { createLogger } from "../utils/logger.js";
 
-// INSERT ... ON CONFLICT DO NOTHING (Postgres) vs INSERT IGNORE (MariaDB) —
-// sin target list, aplica ante cualquier violación de restricción (acá,
-// prácticamente solo un choque de PK, ya casi imposible con UUID v4). Mismo
-// criterio de branching por config.db.driver que email_templates/automation_settings.
-const INSERT_PAYMENT_FROM_WEBHOOK_SQL =
-  config.db.driver === "mysql"
-    ? `INSERT IGNORE INTO payments
+// INSERT IGNORE: aplica ante cualquier violación de restricción (acá,
+// prácticamente solo un choque de PK, ya casi imposible con UUID v4).
+const INSERT_PAYMENT_FROM_WEBHOOK_SQL = `INSERT IGNORE INTO payments
          (id, client_id, hosting_service_id, payment_notice_id, period_month, period_year,
           amount, method, status, paid_at, reference, internal_notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'mercadopago', 'paid', now(), ?, ?)`
-    : `INSERT INTO payments
-         (id, client_id, hosting_service_id, payment_notice_id, period_month, period_year,
-          amount, method, status, paid_at, reference, internal_notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'mercadopago', 'paid', now(), ?, ?)
-       ON CONFLICT DO NOTHING`;
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'mercadopago', 'paid', now(), ?, ?)`;
 
 const log = createLogger("mercadopago");
 const router = Router();

@@ -17,14 +17,13 @@ const JOB_SHUTDOWN_WAIT_MS = 8_000;
 
 let httpServer = null;
 let shuttingDown = false;
-const driverLabel = config.db.driver === "mysql" ? "MariaDB" : "PostgreSQL";
 
 async function start() {
   try {
     await pool.query("SELECT 1");
-    log.info(`${driverLabel} conectado`);
+    log.info("MariaDB conectado");
   } catch (err) {
-    log.error(`No se pudo conectar a ${driverLabel}. Verificá DATABASE_URL y que el servidor esté corriendo.`, { err });
+    log.error("No se pudo conectar a MariaDB. Verificá DATABASE_URL (o DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD) y que el servidor esté corriendo.", { err });
     process.exit(1);
   }
 
