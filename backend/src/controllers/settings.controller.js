@@ -313,6 +313,17 @@ export async function uploadCompanyLogo(req, res, next) {
     }
     const logoUrl = `/api/settings/company/logo/${req.file.filename}`;
     await settingsService.updateCompanyLogo(logoUrl);
+
+    await auditService.logAction({
+      user: req.user,
+      requestId: req.requestId,
+      action: "editar",
+      entityType: "configuracion",
+      entityId: "empresa",
+      entityName: "Logo de empresa",
+      newValues: { logoUrl },
+    });
+
     res.json({ logoUrl });
   } catch (err) {
     next(err);

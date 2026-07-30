@@ -63,24 +63,23 @@ export async function updateCompanyLogo(logoUrl) {
     await client.query("BEGIN");
     const existing = await client.query("SELECT id FROM company_settings LIMIT 1");
 
-    // NOTA (hallazgo de esta fase, no corregido — ver docs/MARIADB_MIGRATION.md):
-    // este INSERT no envía company_name, que es NOT NULL en el schema. Si se
-    // sube un logo ANTES de haber guardado la configuración de empresa una
-    // sola vez, esto revienta por violar el NOT NULL — en los dos motores
-    // por igual. Es un bug preexistente (ya estaba así contra Postgres antes
-    // de esta fase); se preserva el comportamiento tal cual para no inventar
-    // un valor de company_name que nadie pidió.
-    let id;
+    // Bug preexistente corregido en la Fase de cierre pre-deploy: antes esto
+    // insertaba una fila sin company_name (NOT NULL en el schema) cuando
+    // todavía no existía configuración de empresa, y reventaba con un 500
+    // genérico. Ahora no se inventa un company_name — se rechaza con un
+    // error funcional claro (409, mismo formato que el resto de la app vía
+    // errorHandler) pidiendo guardar los datos básicos de empresa primero.
     if (existing.rows.length === 0) {
-      id = randomUUID();
-      await client.query(
-        `INSERT INTO company_settings (id, logo_url) VALUES (?, ?)`,
-        [id, logoUrl],
+      const err = new Error(
+        "Todavía no se guardó la configuración de la empresa. Guardá el nombre y los datos básicos antes de subir un logo.",
       );
-    } else {
-      id = existing.rows[0].id;
-      await client.query("UPDATE company_settings SET logo_url = ?, updated_at = now() WHERE id = ?", [logoUrl, id]);
+      err.status = 409;
+      err.code = "COMPANY_SETTINGS_NOT_FOUND";
+      throw err;
     }
+
+    const id = existing.rows[0].id;
+    await client.query("UPDATE company_settings SET logo_url = ?, updated_at = now() WHERE id = ?", [logoUrl, id]);
     const { rows } = await client.query("SELECT * FROM company_settings WHERE id = ?", [id]);
 
     await client.query("COMMIT");

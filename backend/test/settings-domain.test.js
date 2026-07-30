@@ -115,20 +115,25 @@ test("settingsService.updateCompanySettings: un error mid-transacción hace ROLL
   assert.match(queries[3], /^ROLLBACK$/);
 });
 
-test("settingsService.updateCompanyLogo: sin fila previa, el INSERT no envía company_name (bug preexistente, ver docs/MARIADB_MIGRATION.md — se preserva, no se inventa un valor)", async (t) => {
-  let insertParams;
+test("settingsService.updateCompanyLogo: sin fila previa, rechaza con un error funcional 409 (no inventa company_name, no revienta con 500)", async (t) => {
   const { queries } = mockPoolConnect(t, [
     { rows: [], rowCount: 1 },  // BEGIN
     { rows: [] },                // SELECT id: no existe
-    { rows: [], rowCount: 1 },  // INSERT
-    { rows: [fakeSettingsRow({ logo_url: "/api/settings/company/logo/logo-1.png" })] }, // SELECT final
-    { rows: [], rowCount: 1 },  // COMMIT
+    { rows: [], rowCount: 1 },  // ROLLBACK
   ]);
 
-  const result = await settingsService.updateCompanyLogo("/api/settings/company/logo/logo-1.png");
+  await assert.rejects(
+    () => settingsService.updateCompanyLogo("/api/settings/company/logo/logo-1.png"),
+    (err) => {
+      assert.equal(err.status, 409);
+      assert.equal(err.code, "COMPANY_SETTINGS_NOT_FOUND");
+      return true;
+    },
+  );
 
-  assert.match(queries[2], /INSERT INTO company_settings \(id, logo_url\)/);
-  assert.equal(result.logoUrl, "/api/settings/company/logo/logo-1.png");
+  // Ningún INSERT se ejecuta — no se crea una fila incompleta.
+  assert.ok(!queries.some((q) => /INSERT INTO company_settings/.test(q)));
+  assert.match(queries[queries.length - 1], /^ROLLBACK$/);
 });
 
 test("settingsService.updateCompanyLogo: con fila previa, solo actualiza logo_url", async (t) => {
