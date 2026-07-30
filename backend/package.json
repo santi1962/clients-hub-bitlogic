@@ -10,8 +10,10 @@
   "scripts": {
     "dev": "nodemon --watch src --ext js src/server.js",
     "start": "node src/server.js",
-    "migrate": "node src/db/migrate.js",
-    "seed": "node src/seeds/seed.js",
+    "db:schema:mariadb": "node scripts/apply-mariadb-schema.mjs",
+    "db:create-admin": "node src/scripts/create-admin.js",
+    "db:reset": "node src/db/reset.js",
+    "seed:demo": "node src/seeds/seed.js",
     "clear-demo-data": "node src/scripts/clear-demo-data.js",
     "setup-initial": "echo 'Usar interfaz web: http://localhost:5173/setup-inicial para cargar datos reales'",
     "test": "node --test \"test/**/*.test.js\""
