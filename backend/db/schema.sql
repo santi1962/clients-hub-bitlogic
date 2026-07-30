@@ -10,11 +10,12 @@
 -- decidió en la auditoría de migración (opción B: "schema inicial
 -- consolidado" en vez de convertir las 16 migraciones una por una).
 --
--- ESTADO: preparación únicamente (Fase DB-1). Este archivo TODAVÍA NO está
--- conectado a ningún runner (`backend/src/db/migrate.js` sigue apuntando
--- solo a las migraciones de Postgres) y no se ejecutó contra ninguna base
--- real ni de prueba. Las 16 migraciones de Postgres NO se borraron — siguen
--- siendo la fuente de verdad mientras el motor productivo sea PostgreSQL.
+-- ESTADO (Fase DB-5A): MariaDB es el único motor soportado. Este archivo es
+-- la ÚNICA fuente de verdad del schema — se aplica con
+-- `npm run db:schema:mariadb` (backend/scripts/apply-mariadb-schema.mjs)
+-- para levantar una instalación desde cero. Las 16 migraciones de
+-- PostgreSQL, ya no ejecutables en producción, quedaron archivadas en
+-- `backend/db/archive/postgresql-migrations/` como referencia histórica.
 --
 -- REQUIERE: MariaDB 10.5+ como piso técnico (RETURNING en INSERT/DELETE para
 -- cuando se conviertan más queries, CREATE SEQUENCE, DEFAULT (UUID()) y CHECK,
@@ -22,11 +23,11 @@
 -- del VPS, MariaDB 11.4.10 (Fase DB-2.5) — ver docs/MARIADB_MIGRATION.md.
 --
 -- DECISIONES DE CONVERSIÓN (detalle completo en el informe de la Fase DB-1):
---   - UUID de Postgres (gen_random_uuid()) -> CHAR(36) con DEFAULT (UUID()).
---     Nota: UUID() de MariaDB es v1 (timestamp+MAC), no v4 random como
---     pgcrypto. Aceptable como puente para esta fase; recomendado pasar a
---     generación en la app (crypto.randomUUID()) cuando se toquen los
---     services en la Fase DB-3.
+--   - UUID de Postgres (gen_random_uuid()) -> CHAR(36). Todos los IDs se
+--     generan en Node con crypto.randomUUID() (UUID v4) y se envían
+--     explícitos en cada INSERT — no queda ningún DEFAULT (UUID()) de
+--     MariaDB (que sería v1, timestamp+MAC) en ninguna columna del schema,
+--     ni siquiera en los seeds internos de este archivo (automation_settings).
 --   - Triggers reutilizables de "updated_at" (set_updated_at(),
 --     update_internal_tasks_updated_at(), etc.) -> eliminados por completo,
 --     reemplazados por el atributo nativo de columna
@@ -589,10 +590,7 @@ CREATE INDEX IF NOT EXISTS idx_scheduler_logs_job_created  ON scheduler_logs (jo
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS automation_settings (
-  -- DEFAULT (UUID()) se mantiene (excepción documentada, igual criterio que
-  -- users.id/domains.id): el seed INSERT IGNORE de más abajo, que corre como
-  -- parte de este mismo schema.sql, no envía id explícito.
-  id          CHAR(36)     NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  id          CHAR(36)     NOT NULL PRIMARY KEY,
   `key`       VARCHAR(100) COLLATE utf8mb4_bin NOT NULL, -- TEXT+UNIQUE en Postgres -> acotado; `key` es palabra reservada, escapada con backticks. Comparación exacta: son claves de código (ej. 'reminder_7_days'), no texto de negocio.
   value       JSON         NOT NULL DEFAULT '{}',
   description TEXT,
@@ -607,16 +605,18 @@ CREATE TABLE IF NOT EXISTS automation_settings (
 CREATE INDEX IF NOT EXISTS idx_automation_settings_key     ON automation_settings (`key`);
 CREATE INDEX IF NOT EXISTS idx_automation_settings_enabled ON automation_settings (enabled);
 
-INSERT IGNORE INTO automation_settings (`key`, description, value, enabled)
+-- IDs literales y deterministas (misma política que users/domains: ningún
+-- flujo productivo depende de DEFAULT (UUID()), acá tampoco su propio seed).
+INSERT IGNORE INTO automation_settings (id, `key`, description, value, enabled)
 VALUES
-  ('reminder_7_days', 'Send email reminder 7 days before due date', '{"enabled": false, "emailTemplate": "payment_reminder_7d"}', false),
-  ('reminder_3_days', 'Send email reminder 3 days before due date', '{"enabled": false, "emailTemplate": "payment_reminder_3d"}', false),
-  ('reminder_due_today', 'Send email reminder on due date', '{"enabled": false, "emailTemplate": "payment_reminder_due"}', false),
-  ('reminder_overdue_7days', 'Send email reminder 7+ days after due date', '{"enabled": false, "emailTemplate": "payment_reminder_overdue"}', false),
-  ('delinquency_create_task', 'Create task when payment is 7+ days overdue', '{"enabled": false, "taskTemplate": "mora_pago"}', false),
-  ('hestia_sync_enabled', 'Automatically sync storage usage from HestiaCP daily', '{"enabled": false, "schedule": "02:00"}', false),
-  ('notification_recipients_admin', 'Email addresses to notify on critical events', '{"emails": []}', true),
-  ('notification_recipients_finance', 'Email addresses for finance notifications', '{"emails": []}', true);
+  ('66666666-6666-6666-6666-000000000001', 'reminder_7_days', 'Send email reminder 7 days before due date', '{"enabled": false, "emailTemplate": "payment_reminder_7d"}', false),
+  ('66666666-6666-6666-6666-000000000002', 'reminder_3_days', 'Send email reminder 3 days before due date', '{"enabled": false, "emailTemplate": "payment_reminder_3d"}', false),
+  ('66666666-6666-6666-6666-000000000003', 'reminder_due_today', 'Send email reminder on due date', '{"enabled": false, "emailTemplate": "payment_reminder_due"}', false),
+  ('66666666-6666-6666-6666-000000000004', 'reminder_overdue_7days', 'Send email reminder 7+ days after due date', '{"enabled": false, "emailTemplate": "payment_reminder_overdue"}', false),
+  ('66666666-6666-6666-6666-000000000005', 'delinquency_create_task', 'Create task when payment is 7+ days overdue', '{"enabled": false, "taskTemplate": "mora_pago"}', false),
+  ('66666666-6666-6666-6666-000000000006', 'hestia_sync_enabled', 'Automatically sync storage usage from HestiaCP daily', '{"enabled": false, "schedule": "02:00"}', false),
+  ('66666666-6666-6666-6666-000000000007', 'notification_recipients_admin', 'Email addresses to notify on critical events', '{"emails": []}', true),
+  ('66666666-6666-6666-6666-000000000008', 'notification_recipients_finance', 'Email addresses for finance notifications', '{"emails": []}', true);
 
 -- ============================================================
 -- payment_reminder_logs
