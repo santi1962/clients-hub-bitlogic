@@ -1,3 +1,4 @@
+import "./utils/assert-node-version.js";
 import "dotenv/config";
 import { createServer } from "http";
 import app from "./app.js";

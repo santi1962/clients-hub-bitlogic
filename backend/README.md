@@ -4,7 +4,7 @@ API REST en Node.js + Express + MariaDB para Bitlogic Client Hub.
 
 ## Requisitos
 
-- Node.js 22+
+- Node.js **>=22.12.0** (lo exige `@tanstack/react-start` del frontend; el backend sigue la misma política — una sola versión mínima para todo el repo. Se hace cumplir con `.npmrc` (`engine-strict=true`) y con un chequeo en runtime al arrancar `server.js`, ver `src/utils/assert-node-version.js`)
 - MariaDB 11.4 (único motor soportado — PostgreSQL fue removido del runtime)
 - npm
 

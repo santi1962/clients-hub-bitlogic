@@ -11,7 +11,7 @@ Sistema interno de Bitlogic (empresa de hosting) para gestionar clientes, servic
 | Capa | Tecnología |
 |------|-----------|
 | **Frontend** | React 19, TanStack Start (SSR) + TanStack Router/Query, Tailwind CSS, shadcn/ui |
-| **Backend** | Node.js 22+ (ESM), Express, MariaDB 11.4 (SQL directo, sin ORM) — **único motor soportado**, `pg` fue removido del todo. Ver [`docs/MARIADB_MIGRATION.md`](docs/MARIADB_MIGRATION.md) para el historial de la migración |
+| **Backend** | Node.js **>=22.12.0** (ESM), Express, MariaDB 11.4 (SQL directo, sin ORM) — **único motor soportado**, `pg` fue removido del todo. Ver [`docs/MARIADB_MIGRATION.md`](docs/MARIADB_MIGRATION.md) para el historial de la migración |
 | **Auth** | JWT (accessToken 15min en memoria + refreshToken httpOnly 30d) |
 | **Tiempo real** | Socket.IO (chat de tickets) — requiere backend en 1 sola instancia (fork), nunca cluster |
 | **Procesos** | PM2 vía `ecosystem.config.js` (raíz) — `bitlogic-backend` + `bitlogic-frontend`, ambas fork/1 instancia |
@@ -46,7 +46,9 @@ npm run seed:demo -- --yes  # Opcional: datos de DEMO (ver advertencia abajo)
 npm start            # http://localhost:3001
 ```
 
-**Variables de entorno** (`.env`): ver `backend/.env.example` para la lista completa (incluye DB, JWT, SMTP, MercadoPago, Telegram, WhatsApp, admin bootstrap). Requiere Node 22+ (el frontend, TanStack Start, necesita 22.12+).
+**Variables de entorno** (`.env`): ver `backend/.env.example` para la lista completa (incluye DB, JWT, SMTP, MercadoPago, Telegram, WhatsApp, admin bootstrap).
+
+**Requisito de Node: `>=22.12.0`** (lo exige `@tanstack/react-start` del frontend; el backend sigue la misma política, una sola versión mínima para todo el repo). Se hace cumplir en dos niveles: `.npmrc` (`engine-strict=true`, tanto en la raíz como en `backend/`) rechaza `npm install`/`npm ci` con un Node más viejo, y `backend/src/utils/assert-node-version.js` (importado como primera línea de `server.js`) corta el arranque con un mensaje claro si el Node del proceso real no cumple, incluso si `node_modules` se copió a un server con un Node del sistema desactualizado.
 
 > ⚠️ **`npm run seed:demo` carga datos de DEMO ficticios (clientes, servicios, pagos de prueba). No ejecutarlo nunca contra la base de datos de producción** (además se niega a correr si `NODE_ENV=production`). La base de producción se crea fresca directamente en MariaDB vía Hestia/phpMyAdmin en el VPS — no hay datos reales que migrar, se parte de cero con `db:schema:mariadb` + `db:create-admin`.
 
