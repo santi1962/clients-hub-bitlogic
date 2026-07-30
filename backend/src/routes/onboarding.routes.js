@@ -18,7 +18,7 @@ router.get("/", authRequired, async (req, res, next) => {
         -- portal_user_created: tiene usuario con rol='cliente'
         EXISTS (SELECT 1 FROM users u WHERE u.client_id = c.id AND u.role = 'cliente' AND u.status = 'active') AS portal_user_created,
         -- first_notice_generated: tiene al menos un aviso
-        EXISTS (SELECT 1 FROM billing_notices bn WHERE bn.client_id = c.id)  AS first_notice_generated,
+        EXISTS (SELECT 1 FROM payment_notices bn WHERE bn.client_id = c.id)  AS first_notice_generated,
         -- first_payment_registered: tiene al menos un pago
         EXISTS (SELECT 1 FROM payments p WHERE p.client_id = c.id)           AS first_payment_registered
       FROM clients c
