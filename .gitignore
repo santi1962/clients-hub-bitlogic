@@ -77,3 +77,13 @@ Thumbs.db
 *.tmp
 *.temp
 *~
+
+# ── Migración de datos reales PostgreSQL -> MariaDB (Fase DB-4A) ─────
+# Backups (.dump), exportaciones NDJSON y manifests SIEMPRE contienen datos
+# reales de clientes (emails, hashes, montos) — nunca deben trackearse,
+# sin importar desde qué directorio se invoquen las herramientas.
+backend/.mariadb-migration-data/
+**/.mariadb-migration-data/
+*.dump
+*.dump.meta.json
+mariadb-migration-export-*/
