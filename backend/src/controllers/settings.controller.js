@@ -287,19 +287,10 @@ export async function getEmailTemplates(req, res, next) {
   }
 }
 
-// ON CONFLICT (Postgres) vs ON DUPLICATE KEY UPDATE (MariaDB) no tienen
-// sintaxis común — es el único caso de este dominio que varía según el
-// motor activo (config.db.driver), igual criterio que seeds/001_admin_seed.js
-// desde DB-1. EXCLUDED.col/VALUES(col) evitan repetir subject/body en el
-// array de parámetros.
-const UPSERT_EMAIL_TEMPLATE_SQL =
-  config.db.driver === "mysql"
-    ? `INSERT INTO email_templates (id, subject, body, updated_at)
+// VALUES(col) evita repetir subject/body en el array de parámetros.
+const UPSERT_EMAIL_TEMPLATE_SQL = `INSERT INTO email_templates (id, subject, body, updated_at)
        VALUES (?, ?, ?, now())
-       ON DUPLICATE KEY UPDATE subject = VALUES(subject), body = VALUES(body), updated_at = now()`
-    : `INSERT INTO email_templates (id, subject, body, updated_at)
-       VALUES (?, ?, ?, now())
-       ON CONFLICT (id) DO UPDATE SET subject = EXCLUDED.subject, body = EXCLUDED.body, updated_at = now()`;
+       ON DUPLICATE KEY UPDATE subject = VALUES(subject), body = VALUES(body), updated_at = now()`;
 
 export async function updateEmailTemplate(req, res, next) {
   try {
@@ -322,6 +313,17 @@ export async function uploadCompanyLogo(req, res, next) {
     }
     const logoUrl = `/api/settings/company/logo/${req.file.filename}`;
     await settingsService.updateCompanyLogo(logoUrl);
+
+    await auditService.logAction({
+      user: req.user,
+      requestId: req.requestId,
+      action: "editar",
+      entityType: "configuracion",
+      entityId: "empresa",
+      entityName: "Logo de empresa",
+      newValues: { logoUrl },
+    });
+
     res.json({ logoUrl });
   } catch (err) {
     next(err);

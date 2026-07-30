@@ -4,36 +4,18 @@
  * Cubre meses 2026-04, 2026-05, 2026-06 con distintos estados.
  */
 import pool from "../db/pool.js";
-import config from "../config/index.js";
 
-// ON CONFLICT (id) DO NOTHING (Postgres) vs INSERT IGNORE (MariaDB) — mismo
-// criterio de branching que seeds/001_admin_seed.js. Ambos seeds de esta
-// fase (avisos y pagos) ya mandan id explícito (deterministas, ver N()/P()
-// abajo), así que INSERT IGNORE reproduce exactamente "ya existe -> no hacer
-// nada" sin distinto comportamiento entre motores.
-const INSERT_NOTICE_SQL =
-  config.db.driver === "mysql"
-    ? `INSERT IGNORE INTO payment_notices (id, client_id, hosting_service_id, notice_number, period_month, period_year, issue_date, due_date, amount, status, sent_at, paid_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
-    : `INSERT INTO payment_notices (id, client_id, hosting_service_id, notice_number, period_month, period_year, issue_date, due_date, amount, status, sent_at, paid_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-       ON CONFLICT (id) DO NOTHING`;
+// Ambos seeds de esta fase (avisos y pagos) ya mandan id explícito
+// (deterministas, ver N()/P() abajo), así que INSERT IGNORE reproduce
+// exactamente "ya existe -> no hacer nada".
+const INSERT_NOTICE_SQL = `INSERT IGNORE INTO payment_notices (id, client_id, hosting_service_id, notice_number, period_month, period_year, issue_date, due_date, amount, status, sent_at, paid_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`;
 
-const INSERT_PAYMENT_SQL =
-  config.db.driver === "mysql"
-    ? `INSERT IGNORE INTO payments (id, client_id, hosting_service_id, payment_notice_id, period_month, period_year, amount, method, status, paid_at, reference)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`
-    : `INSERT INTO payments (id, client_id, hosting_service_id, payment_notice_id, period_month, period_year, amount, method, status, paid_at, reference)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)
-       ON CONFLICT (id) DO NOTHING`;
+const INSERT_PAYMENT_SQL = `INSERT IGNORE INTO payments (id, client_id, hosting_service_id, payment_notice_id, period_month, period_year, amount, method, status, paid_at, reference)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`;
 
-// SETVAL(seq, valor, is_called): Postgres exige el nombre de la secuencia
-// como string literal; MariaDB exige un identificador sin comillas (mismo
-// caso que NEXTVAL, ver billing.service.js) — branching por config.db.driver.
-const SETVAL_NOTICE_SEQ_SQL =
-  config.db.driver === "mysql"
-    ? `SELECT SETVAL(payment_notice_number_seq, 20, true)`
-    : `SELECT SETVAL('payment_notice_number_seq', 20, true)`;
+// MariaDB exige el nombre de la secuencia como identificador sin comillas.
+const SETVAL_NOTICE_SEQ_SQL = `SELECT SETVAL(payment_notice_number_seq, 20, true)`;
 
 // Reutilizar los UUIDs deterministas del seed 002
 const C = {

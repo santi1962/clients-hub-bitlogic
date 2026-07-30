@@ -36,7 +36,7 @@ git status  # Verificar que .env NO aparece
 git commit -m "chore: prepare bitlogic client hub for production deploy
 
 - Frontend: branding finalizado, mocks eliminados
-- Backend: configurado para PostgreSQL producción
+- Backend: configurado para MariaDB producción
 - Build: 0 errores, listo para deploy
 - Deployment: scripts y configuración Nginx listos
 - Versión: 1.0.0"
@@ -94,8 +94,8 @@ su - bitlogic
 apt-get update
 apt-get install -y curl wget git
 
-# Node.js (si no existe)
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+# Node.js 22+ (requerido — ver "engines" en package.json, tanto backend como frontend)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 apt-get install -y nodejs
 
 # PM2 (global)
@@ -104,8 +104,10 @@ npm install -g pm2
 # Nginx (si no existe)
 apt-get install -y nginx
 
-# PostgreSQL (si es primera vez)
-apt-get install -y postgresql postgresql-contrib
+# MariaDB: en este VPS la administra HestiaCP directamente (11.4, vía panel/phpMyAdmin) —
+# no hace falta instalarla por apt acá. Sí conviene tener el cliente disponible para
+# usar mariadb-dump/mysqldump desde el módulo de Backups:
+apt-get install -y mariadb-client
 
 # Certbot para SSL
 apt-get install -y certbot python3-certbot-nginx
@@ -167,8 +169,15 @@ nano .env
 NODE_ENV=production
 PORT=3001
 
-# Database — connection string única, no variables sueltas
-DATABASE_URL=postgresql://bitlogic_user:CONTRASEÑA_SEGURA@localhost:5432/bitlogic_prod
+# Database — connection string única, o variables discretas equivalentes
+# (DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD, ver backend/.env.example).
+# Solo se acepta mysql://; postgresql:// es rechazado al arrancar con un error fatal.
+DATABASE_URL=mysql://bitlogic_user:CONTRASEÑA_SEGURA@localhost:3306/bitlogic_prod
+
+# Admin bootstrap (npm run db:create-admin) — crea el primer super_admin real
+ADMIN_NAME=Nombre Apellido
+ADMIN_EMAIL=admin@bitlogic.com.ar
+ADMIN_PASSWORD=CONTRASEÑA_SEGURA_AQUI
 
 # JWT — generar con: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 JWT_ACCESS_SECRET=CLAVE_SECRETA_LARGA_AQUI
@@ -241,36 +250,41 @@ EOF
 
 ## 🗄️ FASE 5: BASE DE DATOS
 
-### Paso 5.1: Crear usuario y BD PostgreSQL (como root)
+La base de producción es MariaDB 11.4, administrada por HestiaCP en este VPS. Se crea **fresca** — no hay ningún dato de un Postgres anterior que migrar (decisión explícita: no existía data real de producción que valiera la pena conservar).
+
+### Paso 5.1: Crear usuario y BD MariaDB (vía Hestia o phpMyAdmin)
+
+Desde el panel de Hestia (`Web > Base de datos` o el phpMyAdmin asociado), crear:
+- Una base de datos (ej. `bitlogic_prod`).
+- Un usuario con permisos completos sobre esa base (ej. `bitlogic_user`).
+
+Alternativa por línea de comandos, si se prefiere hacerlo a mano:
 ```bash
-sudo -u postgres psql << 'SQL'
--- Crear usuario
-CREATE USER bitlogic_user WITH PASSWORD 'CONTRASEÑA_AQUÍ';
-
--- Crear BD
-CREATE DATABASE bitlogic_prod OWNER bitlogic_user;
-
--- Permisos
-GRANT CONNECT ON DATABASE bitlogic_prod TO bitlogic_user;
-GRANT CREATE ON DATABASE bitlogic_prod TO bitlogic_user;
-\c bitlogic_prod
-GRANT ALL ON SCHEMA public TO bitlogic_user;
-
+mysql -u root -p << 'SQL'
+CREATE DATABASE bitlogic_prod CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_520_ci;
+CREATE USER 'bitlogic_user'@'localhost' IDENTIFIED BY 'CONTRASEÑA_AQUÍ';
+GRANT ALL PRIVILEGES ON bitlogic_prod.* TO 'bitlogic_user'@'localhost';
+FLUSH PRIVILEGES;
 SQL
 ```
 
-### Paso 5.2: Ejecutar migraciones
+### Paso 5.2: Aplicar el schema y crear el admin real
 ```bash
 cd /home/bitlogic/apps/bitlogic-client-hub/backend
 
 # Asegurar que NODE_ENV=production
 export NODE_ENV=production
 
-# Ejecutar migraciones
-npm run migrate
+# Aplicar backend/db/schema.sql (única fuente de verdad, 20 tablas) — requiere
+# --confirm-production para correr contra un nombre de base que no parezca de test
+npm run db:schema:mariadb -- --url mysql://bitlogic_user:CONTRASEÑA@localhost:3306/bitlogic_prod --confirm-production
 
-# NOTA: NO ejecutar seed en producción (solo datos reales)
-# npm run seed — NO ejecutar esto
+# Crear el primer super_admin real (lee ADMIN_NAME/ADMIN_EMAIL/ADMIN_PASSWORD de .env,
+# idempotente por email, nunca loguea la contraseña)
+npm run db:create-admin
+
+# NOTA: NO ejecutar seeds de demo en producción
+# npm run seed:demo — NO ejecutar esto (además se niega solo si NODE_ENV=production)
 ```
 
 ---
@@ -478,8 +492,8 @@ pm2 logs bitlogic-frontend --lines 20
 # Nginx
 systemctl status nginx
 
-# PostgreSQL
-sudo -u postgres psql -l | grep bitlogic
+# MariaDB
+mysql -u root -p -e "SHOW DATABASES;" | grep bitlogic
 ```
 
 ### Paso 10.2: Pruebas HTTP
@@ -537,14 +551,14 @@ tail -f /var/log/nginx/clientes.bitlogic.com.ar-error.log
 
 ### Si BD falla
 ```bash
-# Conectar a PostgreSQL
-sudo -u postgres psql -d bitlogic_prod
+# Conectar a MariaDB
+mysql -u bitlogic_user -p bitlogic_prod
 
 # Ver tablas
-\dt
+SHOW TABLES;
 
 # Ver conexiones activas
-SELECT * FROM pg_stat_activity;
+SHOW PROCESSLIST;
 ```
 
 ### Si SSL falla
@@ -568,7 +582,7 @@ certbot renew --force-renewal
 - [ ] ✅ Logo visible en tab y sidebar
 - [ ] ✅ SSL válido (sin advertencias)
 - [ ] ✅ PM2 en estado online (todos los procesos)
-- [ ] ✅ BD PostgreSQL conectada
+- [ ] ✅ BD MariaDB conectada
 - [ ] ✅ Logs no muestran errores críticos
 
 ---
@@ -589,8 +603,9 @@ tail -f /home/bitlogic/apps/bitlogic-client-hub/logs/*.log
 # Reiniciar todo
 pm2 restart all
 
-# Ver logs del día
-journalctl -u postgresql --since today
+# Ver logs del día (MariaDB administrada por Hestia — el nombre del servicio
+# systemd puede ser mariadb o mysql según la instalación del VPS)
+journalctl -u mariadb --since today
 ```
 
 ---

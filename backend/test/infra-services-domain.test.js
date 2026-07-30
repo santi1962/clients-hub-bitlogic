@@ -56,7 +56,7 @@ test("updateEmailTemplate: 400 si falta subject o body", async (t) => {
   assert.equal(res.statusCode, 400);
 });
 
-test("updateEmailTemplate: hace upsert con placeholders `?` (variante ON CONFLICT bajo Postgres) y devuelve el template", async (t) => {
+test("updateEmailTemplate: hace upsert con placeholders `?` (ON DUPLICATE KEY UPDATE) y devuelve el template", async (t) => {
   let captured;
   const original = pool.query;
   pool.query = async (sql, params) => {
@@ -72,7 +72,7 @@ test("updateEmailTemplate: hace upsert con placeholders `?` (variante ON CONFLIC
   await settingsController.updateEmailTemplate(req, res, (err) => assert.fail(err));
 
   assert.match(captured.sql, /INSERT INTO email_templates/);
-  assert.match(captured.sql, /ON CONFLICT \(id\) DO UPDATE/);
+  assert.match(captured.sql, /ON DUPLICATE KEY UPDATE/);
   assert.deepEqual(captured.params, ["venc", "Nuevo asunto", "Nuevo cuerpo"]);
   assert.deepEqual(res.body, { id: "venc", subject: "Nuevo asunto", body: "Nuevo cuerpo" });
 });

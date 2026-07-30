@@ -1,16 +1,8 @@
 import { randomUUID } from "crypto";
 import pool from "../db/pool.js";
-import config from "../config/index.js";
 
-// ON CONFLICT DO NOTHING (Postgres) vs INSERT IGNORE (MariaDB) — mismo
-// criterio de branching por config.db.driver que seeds/001_admin_seed.js.
-const INSERT_DOMAIN_SQL =
-  config.db.driver === "mysql"
-    ? `INSERT IGNORE INTO domains (id, client_id, hosting_service_id, domain, registrar, registration_date, expiration_date, annual_cost, customer_price, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    : `INSERT INTO domains (id, client_id, hosting_service_id, domain, registrar, registration_date, expiration_date, annual_cost, customer_price, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT DO NOTHING`;
+const INSERT_DOMAIN_SQL = `INSERT IGNORE INTO domains (id, client_id, hosting_service_id, domain, registrar, registration_date, expiration_date, annual_cost, customer_price, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 const CLIENTS = [
   "22222222-2222-2222-2222-000000000001",

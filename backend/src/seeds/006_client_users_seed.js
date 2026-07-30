@@ -5,19 +5,11 @@
 import bcrypt from "bcrypt";
 import { randomUUID } from "crypto";
 import pool from "../db/pool.js";
-import config from "../config/index.js";
 
 const PASSWORD = "Cambiar123!";
 
-// ON CONFLICT (email) DO NOTHING (Postgres) vs INSERT IGNORE (MariaDB) —
-// mismo criterio de branching que seeds/001_admin_seed.js.
-const INSERT_CLIENT_USER_SQL =
-  config.db.driver === "mysql"
-    ? `INSERT IGNORE INTO users (id, name, email, password_hash, role, status, client_id)
-       VALUES (?, ?, ?, ?, 'cliente', 'active', ?)`
-    : `INSERT INTO users (id, name, email, password_hash, role, status, client_id)
-       VALUES (?, ?, ?, ?, 'cliente', 'active', ?)
-       ON CONFLICT (email) DO NOTHING`;
+const INSERT_CLIENT_USER_SQL = `INSERT IGNORE INTO users (id, name, email, password_hash, role, status, client_id)
+       VALUES (?, ?, ?, ?, 'cliente', 'active', ?)`;
 
 const CLIENTS = [
   {

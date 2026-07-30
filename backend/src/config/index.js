@@ -29,19 +29,51 @@ function parseBool(value, defaultValue) {
 }
 
 /**
- * Detecta el motor de base de datos a partir del esquema de DATABASE_URL.
- * "postgres" es el default histórico (postgresql://, postgres://) — un
- * esquema no reconocido también cae ahí para no romper configuraciones
- * existentes. mysql:// (o mysql2://) activa el driver MariaDB en db/pool.js.
- * Fase DB-1 de la migración a MariaDB: esto solo prepara la detección, las
- * queries del backend siguen en sintaxis PostgreSQL hasta que se conviertan.
+ * Arma la connection string de MariaDB. Estrategia oficial: si DATABASE_URL
+ * está definida, se usa tal cual (debe ser mysql:// o mysql2://) — soporta
+ * el caso de una URL ya armada (ej. provista por el hosting). Si no está
+ * definida, se arma a partir de las variables discretas DB_HOST/DB_PORT/
+ * DB_NAME/DB_USER/DB_PASSWORD (con DB_PORT default 3306) — esta es la forma
+ * recomendada para desarrollo local y para el `.env` de producción, porque
+ * evita tener que URL-encodear una password con caracteres especiales.
+ *
+ * postgresql:// / postgres:// se rechazan explícitamente con un error claro:
+ * MariaDB es el único motor soportado desde la Fase DB-5A.
  */
-function detectDbDriver(connectionString) {
-  if (!connectionString) return "postgres";
-  if (connectionString.startsWith("mysql://") || connectionString.startsWith("mysql2://")) {
-    return "mysql";
+function buildDbConnectionString() {
+  const url = process.env.DATABASE_URL;
+
+  if (url) {
+    if (url.startsWith("postgresql://") || url.startsWith("postgres://")) {
+      console.error(
+        "[Config] FATAL: DATABASE_URL usa esquema postgresql:// — PostgreSQL ya no es un motor soportado. Usá mysql:// (o las variables DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD).",
+      );
+      process.exit(1);
+    }
+    if (!url.startsWith("mysql://") && !url.startsWith("mysql2://")) {
+      console.error(
+        `[Config] FATAL: DATABASE_URL con esquema no soportado. Se esperaba mysql:// o mysql2://.`,
+      );
+      process.exit(1);
+    }
+    return url;
   }
-  return "postgres";
+
+  const host = process.env.DB_HOST;
+  const name = process.env.DB_NAME;
+  const user = process.env.DB_USER;
+
+  if (!host && !name && !user) {
+    // Ninguna variable de DB configurada: se deja que la validación de
+    // producción (más abajo) o el intento real de conexión fallen con un
+    // mensaje claro, en vez de duplicar el chequeo acá.
+    return undefined;
+  }
+
+  const port = process.env.DB_PORT ?? "3306";
+  const password = process.env.DB_PASSWORD ?? "";
+  const auth = password ? `${encodeURIComponent(user)}:${encodeURIComponent(password)}` : encodeURIComponent(user ?? "");
+  return `mysql://${auth}@${host ?? "localhost"}:${port}/${name ?? ""}`;
 }
 
 // ── Validación de variables críticas ────────────────────────────
@@ -51,7 +83,9 @@ function detectDbDriver(connectionString) {
 if (isProduction) {
   const missing = [];
 
-  if (!process.env.DATABASE_URL) missing.push("DATABASE_URL");
+  if (!process.env.DATABASE_URL && !(process.env.DB_HOST && process.env.DB_NAME && process.env.DB_USER)) {
+    missing.push("DATABASE_URL (o DB_HOST + DB_NAME + DB_USER)");
+  }
   if (!process.env.JWT_ACCESS_SECRET) missing.push("JWT_ACCESS_SECRET");
   if (!process.env.JWT_REFRESH_SECRET) missing.push("JWT_REFRESH_SECRET");
   if (!process.env.CORS_ORIGIN) missing.push("CORS_ORIGIN");
@@ -81,8 +115,7 @@ const config = {
   nodeEnv: KNOWN_NODE_ENVS.includes(rawNodeEnv) ? rawNodeEnv : "development",
 
   db: {
-    connectionString: process.env.DATABASE_URL,
-    driver: detectDbDriver(process.env.DATABASE_URL),
+    connectionString: buildDbConnectionString(),
   },
 
   jwt: {

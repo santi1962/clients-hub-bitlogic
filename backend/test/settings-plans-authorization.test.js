@@ -2,7 +2,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import pool from "../src/db/pool.js";
 import app from "../src/app.js";
-import { mockPoolQueries } from "./helpers/pool-mock.js";
+import { mockPoolQueries, mockPoolConnect } from "./helpers/pool-mock.js";
 import { buildAccessToken } from "./helpers/jwt.js";
 import { startEphemeralServer } from "./helpers/server.js";
 
@@ -143,9 +143,120 @@ test("settings: PUT /company con rol super_admin es permitido y audita al usuari
 
   assert.equal(res.status, 200);
   assert.ok(auditParams, "debería haberse llamado al insert de audit_logs");
-  assert.equal(auditParams[0], "user-1", "user_id debe ser el usuario real, no null");
-  assert.equal(auditParams[1], "Super Admin Real", "user_name debe ser el usuario real, no System");
-  assert.notEqual(auditParams[1], "System");
+  // Orden real de columnas: (id, user_id, user_name, ...) — id es un UUID v4
+  // generado en la app (audit.service.js), no el usuario.
+  assert.equal(auditParams[1], "user-1", "user_id debe ser el usuario real, no null");
+  assert.equal(auditParams[2], "Super Admin Real", "user_name debe ser el usuario real, no System");
+  assert.notEqual(auditParams[2], "System");
+});
+
+test("settings: POST /company/logo con rol admin (no super_admin) es rechazado con 403", async (t) => {
+  mockPoolQueries(t, [{ rows: [userRow("admin")] }]);
+  const { baseUrl, close } = await startEphemeralServer(app);
+  t.after(close);
+
+  const res = await fetch(`${baseUrl}/api/settings/company/logo`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${tokenFor("admin")}` },
+  });
+
+  assert.equal(res.status, 403);
+});
+
+test("settings: POST /company/logo sin empresa guardada responde 409 controlado, no 500 genérico", async (t) => {
+  mockPoolQueries(t, [{ rows: [userRow("super_admin")] }]); // authRequired (pool.query)
+  mockPoolConnect(t, [
+    { rows: [], rowCount: 1 }, // BEGIN
+    { rows: [] },              // SELECT id FROM company_settings: no existe
+    { rows: [], rowCount: 1 }, // ROLLBACK
+  ]);
+  const { baseUrl, close } = await startEphemeralServer(app);
+  t.after(close);
+
+  const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const form = new FormData();
+  form.append("logo", new Blob([pngBytes], { type: "image/png" }), "logo.png");
+
+  const res = await fetch(`${baseUrl}/api/settings/company/logo`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${tokenFor("super_admin")}` },
+    body: form,
+  });
+  const body = await res.json();
+
+  // errorHandler.js expone {error:{message}, requestId} para errores
+  // operacionales — el .code queda solo server-side (ver el test a nivel de
+  // servicio en settings-domain.test.js, que sí lo verifica directo sobre la
+  // excepción). Acá se verifica el contrato HTTP real: 409, no 500, mensaje
+  // claro, requestId presente — mismo formato que cualquier otro error de la app.
+  assert.equal(res.status, 409);
+  assert.match(body.error.message, /configuración de la empresa/i);
+  assert.ok(body.requestId);
+});
+
+test("settings: POST /company/logo con empresa existente actualiza el logo y audita al actor real", async (t) => {
+  mockPoolQueries(t, [{ rows: [userRow("super_admin", { name: "Super Admin Real" })] }]); // authRequired (pool.query)
+
+  // Envolvemos pool.query DESPUÉS de mockPoolQueries para interceptar
+  // específicamente el INSERT de audit_logs sin perder la cola canned de
+  // arriba (mismo patrón que el test de auditoría de PUT /company).
+  const queuedQuery = pool.query;
+  let auditParams = null;
+  pool.query = async (sql, params) => {
+    if (typeof sql === "string" && sql.includes("INSERT INTO audit_logs")) {
+      auditParams = params;
+      return { rows: [{ id: "audit-1" }] };
+    }
+    return queuedQuery.call(pool, sql, params);
+  };
+  t.after(() => {
+    pool.query = queuedQuery;
+  });
+
+  const originalConnect = pool.connect;
+  pool.connect = async () => ({
+    query: async (sql) => {
+      if (sql.startsWith("BEGIN") || sql.startsWith("COMMIT")) return { rows: [], rowCount: 1 };
+      if (sql.startsWith("SELECT id")) return { rows: [{ id: "cfg-existente" }] };
+      if (sql.startsWith("UPDATE")) return { rows: [], rowCount: 1 };
+      if (sql.startsWith("SELECT *")) {
+        return { rows: [{ id: "cfg-existente", company_name: "Bitlogic SRL", logo_url: "/api/settings/company/logo/logo-x.png" }] };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+    release() {},
+  });
+  t.after(() => { pool.connect = originalConnect; });
+
+  const { baseUrl, close } = await startEphemeralServer(app);
+  t.after(close);
+
+  const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const form = new FormData();
+  form.append("logo", new Blob([pngBytes], { type: "image/png" }), "logo.png");
+
+  const res = await fetch(`${baseUrl}/api/settings/company/logo`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${tokenFor("super_admin")}` },
+    body: form,
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.match(body.logoUrl, /^\/api\/settings\/company\/logo\//);
+  assert.ok(auditParams, "debería haberse llamado al insert de audit_logs");
+  assert.equal(auditParams[1], "user-1", "user_id debe ser el actor real");
+  assert.equal(auditParams[2], "Super Admin Real", "user_name debe ser el actor real, no System");
+
+  // Limpieza del archivo real subido a disco por multer.
+  const filename = body.logoUrl.split("/").pop();
+  if (filename) {
+    const { fileURLToPath } = await import("node:url");
+    const path = await import("node:path");
+    const fs = await import("node:fs");
+    const logosDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "uploads", "logos");
+    fs.rmSync(path.join(logosDir, filename), { force: true });
+  }
 });
 
 test("settings: GET /templates con rol admin es permitido (Plantillas es super_admin+admin)", async (t) => {

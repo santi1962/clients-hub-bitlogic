@@ -36,6 +36,23 @@ async function run() {
     assert.equal(getEmptyRes.status, 200);
     assert.deepEqual(await getEmptyRes.json(), {}, "sin fila configurada, el endpoint debe devolver {} (no null ni 404)");
 
+    // ── subir logo ANTES de guardar la empresa -> 409 controlado, no 500,
+    // y no queda ninguna fila incompleta creada (bug corregido en esta fase) ──
+    const logoBeforeCompanyRes = await fetch(`${baseUrl}/api/settings/company/logo`, {
+      method: "POST",
+      headers: { Authorization: adminHeaders.Authorization },
+      body: (() => {
+        const form = new FormData();
+        form.append("logo", new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }), "logo-temprano.png");
+        return form;
+      })(),
+    });
+    assert.equal(logoBeforeCompanyRes.status, 409, "sin company_settings todavía, debe rechazar con 409, no con un 500 genérico por NOT NULL");
+    const logoBeforeCompanyBody = await logoBeforeCompanyRes.json();
+    assert.match(logoBeforeCompanyBody.error.message, /configuración de la empresa/i);
+    const { rows: countBeforeRows } = await pool.query(`SELECT COUNT(*) AS c FROM company_settings`);
+    assert.equal(Number(countBeforeRows[0].c), 0, "no debe haberse creado ninguna fila incompleta en company_settings");
+
     // ── PUT /company: crea la primera fila, UUID v4 app-side ──
     const createRes = await fetch(`${baseUrl}/api/settings/company`, {
       method: "PUT",

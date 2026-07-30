@@ -7,7 +7,6 @@ import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import pool from "../db/pool.js";
-import config from "../config/index.js";
 import { authRequired } from "../middlewares/authRequired.js";
 import { requireAdmin } from "../middlewares/requireRole.js";
 
@@ -66,10 +65,6 @@ async function pickMariadbDumpBinary() {
   return cachedDumpBinary;
 }
 
-async function runPgDump(dbUrl, filePath) {
-  await execAsync(`pg_dump "${dbUrl}" -f "${filePath}" --no-password`);
-}
-
 router.get("/", authRequired, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
@@ -106,11 +101,7 @@ router.post("/", authRequired, async (req, res, next) => {
     const dbUrl = process.env.DATABASE_URL;
     if (!dbUrl) throw new Error("DATABASE_URL no configurada");
 
-    if (config.db.driver === "mysql") {
-      await runMysqlDump(dbUrl, filePath);
-    } else {
-      await runPgDump(dbUrl, filePath);
-    }
+    await runMysqlDump(dbUrl, filePath);
 
     const sizeMb = statSync(filePath).size / (1024 * 1024);
     await pool.query(

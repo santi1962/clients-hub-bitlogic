@@ -1,11 +1,11 @@
 # Bitlogic Backend
 
-API REST en Node.js + Express + PostgreSQL para Bitlogic Client Hub.
+API REST en Node.js + Express + MariaDB para Bitlogic Client Hub.
 
 ## Requisitos
 
-- Node.js 18+
-- PostgreSQL 13+
+- Node.js **>=22.12.0** (lo exige `@tanstack/react-start` del frontend; el backend sigue la misma política — una sola versión mínima para todo el repo. Se hace cumplir con `.npmrc` (`engine-strict=true`) y con un chequeo en runtime al arrancar `server.js`, ver `src/utils/assert-node-version.js`)
+- MariaDB 11.4 (único motor soportado — PostgreSQL fue removido del runtime)
 - npm
 
 > **Windows:** `bcrypt` requiere compilación nativa. Si `npm install` falla con errores de node-gyp,
@@ -36,7 +36,7 @@ cp .env.example .env
 
 | Variable | Descripción | Ejemplo |
 |----------|-------------|---------|
-| `DATABASE_URL` | Connection string de PostgreSQL | `postgresql://postgres:pass@localhost:5432/bitlogic` |
+| `DATABASE_URL` | Connection string de MariaDB (`postgresql://` es rechazado al arrancar) | `mysql://root:pass@localhost:3306/bitlogic` |
 | `JWT_ACCESS_SECRET` | Secreto para access tokens (≥ 64 chars) | generado abajo |
 | `JWT_REFRESH_SECRET` | Secreto para refresh tokens (diferente) | generado abajo |
 | `CORS_ORIGIN` | URL del frontend | `http://localhost:5173` |
@@ -49,46 +49,33 @@ node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 
 ---
 
-## Migraciones
+## Schema
 
-Crea todas las tablas en orden:
+`backend/db/schema.sql` es la única fuente de verdad del schema (20 tablas, InnoDB, `utf8mb4`/`utf8mb4_unicode_520_ci`). Se aplica con el runner oficial, nunca a mano:
 
 ```bash
-npm run migrate
+npm run db:schema:mariadb -- --url mysql://user:pass@host:port/dbname
 ```
 
-| Migración | Tablas |
-|-----------|--------|
-| `001_auth_schema.sql` | `users`, `refresh_tokens` |
-| `002_core_hosting_schema.sql` | `clients`, `hosting_plans`, `hosting_services` |
-| `003_billing_schema.sql` | `payments`, `payment_notices` |
-| `004_domains_schema.sql` | `domains` |
-| `005_support_schema.sql` | `support_tickets`, `support_ticket_messages`, sequence `support_ticket_number_seq` |
-| `006_tasks_schema.sql` | `internal_tasks` |
+Requiere pasar `--url` explícito (nunca lee `DATABASE_URL`) y rechaza nombres de base que parezcan de test a menos que se agregue `--confirm-production` (para un init real de producción). Las 16 migraciones históricas de PostgreSQL que existían antes de la migración a MariaDB quedaron archivadas, solo como referencia no ejecutable, en `backend/db/archive/postgresql-migrations/`.
 
-Es idempotente (`IF NOT EXISTS`) — se puede ejecutar múltiples veces sin error.
+Para crear el primer usuario `super_admin` real (no un dato de demo):
+
+```bash
+npm run db:create-admin  # lee ADMIN_NAME/ADMIN_EMAIL/ADMIN_PASSWORD de .env, idempotente por email
+```
 
 ---
 
-## Seed
+## Seed (datos de DEMO)
 
-Inserta datos iniciales:
+Inserta datos ficticios de demostración — no usar en producción:
 
 ```bash
-npm run seed
+npm run seed:demo -- --yes   # o CONFIRM_DEMO_SEED=true npm run seed:demo
 ```
 
-| Seed | Qué inserta |
-|------|-------------|
-| `001_admin_seed.js` | Usuario `admin@bitlogic.com.ar` / `Cambiar123!` (super_admin) |
-| `002_core_hosting_seed.js` | 3 planes, 8 clientes, 12 servicios |
-| `003_billing_seed.js` | 20 avisos de pago (abril–junio 2026), 12 pagos |
-| `004_domains_seed.js` | 12 dominios (activos, próximos a vencer, vencidos) |
-| `005_support_seed.js` | 5 tickets con 13 mensajes de ejemplo |
-| `006_client_users_seed.js` | 4 usuarios cliente (`cliente1@bitlogic.test`–`cliente4@bitlogic.test` / `Cambiar123!`) |
-| `007_tasks_seed.js` | 12 tareas (pendientes, en progreso, completadas, canceladas) |
-
-Todos los seeds son idempotentes (`ON CONFLICT DO NOTHING`).
+Se niega a correr si `NODE_ENV=production`. Los seeds numerados viven en `backend/src/seeds/` (admin de demo, planes/clientes/servicios, avisos/pagos, dominios, tickets, usuarios cliente, tareas) y son idempotentes.
 
 ---
 
@@ -635,12 +622,8 @@ backend/
 │   ├── server.js                 # Entry point: verifica DB y levanta
 │   ├── config/index.js           # Variables de entorno centralizadas
 │   ├── db/
-│   │   ├── pool.js               # Pool de conexiones PostgreSQL
-│   │   └── migrate.js            # Runner de migraciones
-│   ├── migrations/
-│   │   ├── 001_auth_schema.sql           # Tablas users + refresh_tokens + índices
-│   │   ├── 002_core_hosting_schema.sql   # Tablas clients, hosting_plans, hosting_services
-│   │   └── 003_billing_schema.sql        # Tablas payments + payment_notices
+│   │   └── pool.js               # Pool de conexiones MariaDB (mysql2/promise, único driver)
+│   ├── scripts/create-admin.js   # Crea el primer super_admin real (npm run db:create-admin)
 │   ├── seeds/
 │   │   ├── seed.js                       # Runner: ejecuta todos los seeds en orden
 │   │   ├── 001_admin_seed.js             # Usuario admin inicial
@@ -673,6 +656,10 @@ backend/
 │   └── utils/
 │       ├── jwt.js                # Sign/verify JWT
 │       └── password.js           # Hash/verify bcrypt
+├── db/
+│   ├── schema.sql                        # Fuente de verdad del schema (20 tablas)
+│   └── archive/postgresql-migrations/    # Migraciones históricas de Postgres (referencia)
+├── scripts/apply-mariadb-schema.mjs      # Runner del schema (npm run db:schema:mariadb)
 ├── .env.example
 └── package.json
 ```

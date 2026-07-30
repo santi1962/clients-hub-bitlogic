@@ -11,16 +11,21 @@
 // cliente CLI directo, que sí entiende DELIMITER de forma nativa.
 //
 // USO:
-//   node scripts/apply-mariadb-schema.mjs --url mysql://user:pass@host:port/dbname [--dry-run]
+//   npm run db:schema:mariadb -- --url mysql://user:pass@host:port/dbname [--dry-run]
 //   MARIADB_SCHEMA_URL=mysql://... node scripts/apply-mariadb-schema.mjs
 //
-// SALVAGUARDAS (deliberadas, sin override):
+// Para una inicialización productiva controlada (nombre de base real, sin
+// palabras como "test/dev"), agregar --confirm-production explícitamente:
+//   node scripts/apply-mariadb-schema.mjs --url mysql://... --confirm-production
+//
+// SALVAGUARDAS:
 //   - Requiere la URL explícita por --url o MARIADB_SCHEMA_URL. Nunca lee
 //     DATABASE_URL ni ninguna otra variable "productiva" del backend.
 //   - Rechaza ejecutar si el nombre de la base no contiene ninguna palabra
-//     de SAFE_NAME_HINTS (test/dev/scratch/etc.) — corta el caso más común
-//     de accidente (pegar la URL equivocada). No es una garantía de
-//     seguridad, es una barrera heurística contra el error humano.
+//     de SAFE_NAME_HINTS (test/dev/scratch/etc.), salvo que se pase
+//     --confirm-production explícitamente — corta el caso más común de
+//     accidente (pegar la URL equivocada) sin bloquear el uso legítimo
+//     contra una base productiva real.
 //   - No contiene credenciales propias — todo sale de la URL que pasa quien
 //     lo ejecuta.
 //   - No crea la base de datos (debe existir de antemano) ni ejecuta seeds.
@@ -45,10 +50,11 @@ function fail(msg) {
 }
 
 function parseArgs(argv) {
-  const args = { dryRun: false, url: null };
+  const args = { dryRun: false, url: null, confirmProduction: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--dry-run") args.dryRun = true;
     else if (argv[i] === "--url") args.url = argv[++i];
+    else if (argv[i] === "--confirm-production") args.confirmProduction = true;
   }
   return args;
 }
@@ -89,12 +95,15 @@ if (!dbName) {
 }
 
 const looksSafe = SAFE_NAME_HINTS.some((hint) => dbName.toLowerCase().includes(hint));
-if (!looksSafe) {
+if (!looksSafe && !args.confirmProduction) {
   fail(
     `El nombre de base "${dbName}" no parece de prueba/desarrollo (no contiene ninguna de: ${SAFE_NAME_HINTS.join(", ")}).\n` +
-      "  Este script es solo para bases descartables. Si es realmente de prueba, renombrala para que\n" +
-      '  quede explícito (ej. "bitlogic_schema_test") — no hay forma de saltear esta validación.',
+      "  Si es una base de prueba, renombrala para que quede explícito (ej. \"bitlogic_schema_test\").\n" +
+      "  Si es una inicialización productiva real e intencional, volvé a correr con --confirm-production.",
   );
+}
+if (!looksSafe && args.confirmProduction) {
+  console.log(`⚠ --confirm-production: aplicando el schema contra "${dbName}" pese a no tener un nombre de prueba/desarrollo.\n`);
 }
 
 console.log("──────────────────────────────────────────────");
