@@ -1,12 +1,6 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
-import { Mail, Lock, ArrowRight, Eye, EyeOff } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-import { toast } from "sonner";
-import { authApi, setAccessToken } from "@/lib/api-client";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect } from "react";
+import { ArrowRight, Loader2 } from "lucide-react";
 import { BRAND } from "@/lib/brand";
 
 export const Route = createFileRoute("/login")({
@@ -14,33 +8,21 @@ export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
 
+/**
+ * El staff ya no tiene login propio acá — un solo login (Bitiando) para todo
+ * el equipo. Esta pantalla solo redirige, y deja a mano el acceso al portal
+ * de clientes (que sí conserva su login propio, sin SSO).
+ */
 function LoginPage() {
-  const navigate = useNavigate();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [remember, setRemember] = useState(true);
-  const [showPass, setShowPass] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const bitiandoUrl = import.meta.env.VITE_BITIANDO_URL ?? "http://localhost:3000";
+  const bitiandoLoginUrl = `${bitiandoUrl}/login?next=${encodeURIComponent(window.location.origin + "/")}`;
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email || !password) {
-      toast.error("Ingresá email y contraseña");
-      return;
-    }
-    setLoading(true);
-    try {
-      const { accessToken } = await authApi.login({ email, password, remember });
-      setAccessToken(accessToken);
-      toast.success(BRAND.messages.welcome);
-      navigate({ to: "/" });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Error al iniciar sesión";
-      toast.error(message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    const t = setTimeout(() => {
+      window.location.href = bitiandoLoginUrl;
+    }, 800);
+    return () => clearTimeout(t);
+  }, [bitiandoLoginUrl]);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
@@ -86,12 +68,9 @@ function LoginPage() {
           </div>
         </div>
 
-        {/* Form */}
+        {/* Redirect */}
         <div className="flex items-center justify-center p-6">
-          <form
-            onSubmit={submit}
-            className="w-full max-w-sm space-y-6 rounded-2xl border border-border/60 bg-card/40 p-8 shadow-xl backdrop-blur"
-          >
+          <div className="w-full max-w-sm space-y-6 rounded-2xl border border-border/60 bg-card/40 p-8 text-center shadow-xl backdrop-blur">
             <div className="space-y-1 text-center lg:hidden">
               <svg viewBox="0 0 128 128" className="mx-auto h-10 w-10" xmlns="http://www.w3.org/2000/svg">
                 <g stroke="#2563eb" strokeWidth="16" fill="none" strokeLinecap="round" strokeLinejoin="round">
@@ -102,83 +81,31 @@ function LoginPage() {
               <div className="pt-1 text-sm font-semibold">Bitlogic</div>
             </div>
 
+            <div className="flex justify-center text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+
             <div className="space-y-1">
-              <h2 className="text-xl font-semibold tracking-tight">Ingresar al panel</h2>
-              <p className="text-xs text-muted-foreground">Accedé con tu cuenta corporativa.</p>
+              <h2 className="text-xl font-semibold tracking-tight">Redirigiendo…</h2>
+              <p className="text-xs text-muted-foreground">
+                El equipo ingresa con la cuenta única de Bitiando.
+              </p>
             </div>
 
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="email">Email</Label>
-                <div className="relative">
-                  <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    className="pl-9"
-                    placeholder="tu@empresa.com"
-                    autoComplete="email"
-                  />
-                </div>
-              </div>
+            <a
+              href={bitiandoLoginUrl}
+              className="inline-flex items-center justify-center gap-2 text-sm text-primary hover:underline"
+            >
+              Continuar ahora <ArrowRight className="h-4 w-4" />
+            </a>
 
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="pwd">Contraseña</Label>
-                  <Link to="/recuperar" className="text-[11px] text-primary hover:underline">
-                    ¿Olvidaste tu contraseña?
-                  </Link>
-                </div>
-                <div className="relative">
-                  <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="pwd"
-                    type={showPass ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className="px-9"
-                    placeholder="••••••••"
-                    autoComplete="current-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPass((s) => !s)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    {showPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <label className="flex cursor-pointer items-center gap-2 pt-1 text-xs text-muted-foreground">
-                <Checkbox checked={remember} onCheckedChange={(v) => setRemember(Boolean(v))} />
-                Recordarme en este dispositivo
-              </label>
+            <div className="border-t border-border/60 pt-4 text-center text-[11px] text-muted-foreground">
+              ¿Sos cliente?{" "}
+              <Link to="/portal" className="text-primary hover:underline">
+                Acceder al portal del cliente
+              </Link>
             </div>
-
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? (
-                "Ingresando…"
-              ) : (
-                <>
-                  Ingresar <ArrowRight className="ml-2 h-4 w-4" />
-                </>
-              )}
-            </Button>
-
-            <div className="space-y-2 border-t border-border/60 pt-4 text-center text-[11px] text-muted-foreground">
-              <div>
-                ¿Sos cliente?{" "}
-                <Link to="/portal" className="text-primary hover:underline">
-                  Acceder al portal del cliente
-                </Link>
-              </div>
-            </div>
-          </form>
+          </div>
         </div>
       </div>
     </div>

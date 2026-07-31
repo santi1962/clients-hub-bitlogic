@@ -85,6 +85,32 @@ export async function login(email, password, remember = false) {
   return { accessToken, refreshToken, refreshExpiry, user: formatUser(user) };
 }
 
+/**
+ * Login vía SSO de Bitiando: la identidad ya fue verificada por Bitiando
+ * (el controller llamó a su /api/auth/me con la cookie de sesión) — acá NO
+ * se verifica contraseña, solo se busca el usuario del hub por email y se
+ * emiten los mismos tokens que emitiría un login normal. Si el email no
+ * tiene una cuenta activa en el hub, no se auto-crea: el staff de Bitiando
+ * que no debe tener acceso al hub (o al que no se le dio de alta acá) queda
+ * afuera explícitamente.
+ */
+export async function ssoLogin(email) {
+  const user = await findActiveUserByEmail(email);
+
+  if (!user) {
+    const err = new Error("Tu cuenta no tiene acceso al panel de Bitlogic Hub");
+    err.status = 403;
+    throw err;
+  }
+
+  await pool.query(`UPDATE users SET last_login_at = now() WHERE id = ?`, [user.id]);
+
+  const accessToken = signAccessToken({ sub: user.id, role: user.role, clientId: user.client_id ?? null });
+  const { rawToken: refreshToken, expiresAt: refreshExpiry } = await issueRefreshToken(user.id, true);
+
+  return { accessToken, refreshToken, refreshExpiry, user: formatUser(user) };
+}
+
 export async function logout(refreshToken) {
   if (!refreshToken) return;
   const tokenHash = hashToken(refreshToken);

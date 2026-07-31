@@ -220,8 +220,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         // Si no hay token en memoria (page refresh), renovar con la cookie httpOnly
         if (!getAccessToken()) {
-          const { accessToken } = await authApi.refresh();
-          setAccessToken(accessToken);
+          try {
+            const { accessToken } = await authApi.refresh();
+            setAccessToken(accessToken);
+          } catch {
+            // Sin sesión propia del hub: probamos SSO con la sesión de
+            // Bitiando (cookie compartida entre subdominios). Si tampoco hay
+            // sesión de Bitiando, esto también falla y cae al catch de afuera
+            // → user=null → AuthGuard redirige al login de Bitiando.
+            const { accessToken } = await authApi.sso();
+            setAccessToken(accessToken);
+          }
         }
         const rawUser = await authApi.me();
         if (!cancelled) setUser(mapBackendUser(rawUser));
@@ -262,7 +271,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Limpieza garantizada aunque el endpoint falle
           setAccessToken(null);
           setUser(null);
-          window.location.href = "/login";
+          // /login es el SSO de staff; los clientes del portal tienen su
+          // propio login separado.
+          window.location.href = window.location.pathname.startsWith("/portal") ? "/portal" : "/login";
         }
       },
     }),

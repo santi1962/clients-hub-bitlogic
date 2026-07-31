@@ -15,6 +15,51 @@ function refreshCookieOpts(expires) {
   };
 }
 
+/**
+ * SSO con Bitiando: el staff no tiene login propio en el hub, se loguea una
+ * sola vez en Bitiando y esa sesión (cookie `bitiando_session`, compartida
+ * entre subdominios de *.bitlogic.com.ar) alcanza para entrar acá también.
+ *
+ * No confiamos en un JWT compartido: le preguntamos directamente a Bitiando
+ * "¿quién es este cookie?" vía su propio /api/auth/me, y recién con esa
+ * respuesta emitimos los tokens normales del hub (mismo flujo que un login
+ * con contraseña, sin la contraseña).
+ */
+export async function sso(req, res, next) {
+  try {
+    const bitiandoToken = req.cookies?.[config.bitiando.sessionCookie];
+    if (!bitiandoToken) {
+      return res.status(401).json({ error: { message: "No hay sesión de Bitiando" } });
+    }
+
+    let bitiandoUser;
+    try {
+      const resp = await fetch(`${config.bitiando.apiUrl}/api/auth/me`, {
+        headers: { Cookie: `${config.bitiando.sessionCookie}=${bitiandoToken}` },
+      });
+      if (!resp.ok) {
+        return res.status(401).json({ error: { message: "Sesión de Bitiando inválida o expirada" } });
+      }
+      bitiandoUser = await resp.json();
+    } catch {
+      return res.status(502).json({ error: { message: "No se pudo validar la sesión con Bitiando" } });
+    }
+
+    if (!bitiandoUser?.email) {
+      return res.status(401).json({ error: { message: "Respuesta de Bitiando sin email" } });
+    }
+
+    const { accessToken, refreshToken, refreshExpiry, user } = await authService.ssoLogin(
+      bitiandoUser.email,
+    );
+
+    res.cookie(REFRESH_COOKIE, refreshToken, refreshCookieOpts(refreshExpiry));
+    res.json({ accessToken, user });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function login(req, res, next) {
   try {
     const { email, password, remember } = req.body ?? {};

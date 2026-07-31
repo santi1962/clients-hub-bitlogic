@@ -101,9 +101,11 @@ export async function request<T = unknown>(path: string, opts: RequestOpts = {})
       await _refreshingPromise; // esperar que el refresh (ya en curso) termine
       res = await doFetch(); // reintentar con el nuevo token en memoria
     } catch {
-      // Refresh falló → sesión terminada
+      // Refresh falló → sesión terminada. /login es el SSO de staff (no
+      // sirve para clientes) — si estábamos en el portal, volvemos a su
+      // propio login.
       setAccessToken(null);
-      window.location.href = "/login";
+      window.location.href = window.location.pathname.startsWith("/portal") ? "/portal" : "/login";
       throw new Error("Sesión expirada");
     }
   }
@@ -147,6 +149,15 @@ export const authApi = {
       body: payload,
       _skipRefresh: true,
     });
+  },
+  /**
+   * POST /api/auth/sso → { accessToken, user } + sets refresh cookie httpOnly.
+   * SSO con Bitiando: no manda credenciales, el backend reenvía la cookie
+   * `bitiando_session` (compartida entre subdominios *.bitlogic.com.ar) al
+   * /api/auth/me de Bitiando. Falla con 401 si no hay sesión de Bitiando.
+   */
+  async sso(): Promise<AuthSession> {
+    return request<AuthSession>("/auth/sso", { method: "POST", _skipRefresh: true });
   },
   /** POST /api/auth/logout → 204 + borra cookie */
   async logout(): Promise<void> {

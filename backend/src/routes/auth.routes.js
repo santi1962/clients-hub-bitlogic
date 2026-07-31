@@ -22,6 +22,7 @@ const forgotPasswordLimiter = rateLimit({
 });
 
 router.post("/login", loginLimiter, authController.login);
+router.post("/sso", loginLimiter, authController.sso);
 router.post("/logout", authController.logout);
 router.post("/refresh", authController.refresh);
 router.get("/me", authRequired, authController.me);

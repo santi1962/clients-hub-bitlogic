@@ -95,6 +95,9 @@ if (isProduction) {
   if (process.env.MP_ACCESS_TOKEN && !process.env.BACKEND_PUBLIC_URL) {
     missing.push("BACKEND_PUBLIC_URL (requerido porque MP_ACCESS_TOKEN está configurado)");
   }
+  // SSO con Bitiando (login único de staff): sin esto, nadie del staff puede
+  // entrar al panel — solo el portal de clientes (que no usa SSO) seguiría andando.
+  if (!process.env.BITIANDO_API_URL) missing.push("BITIANDO_API_URL");
 
   if (missing.length > 0) {
     console.error(`[Config] Variables de entorno requeridas faltantes: ${missing.join(", ")}`);
@@ -146,6 +149,15 @@ const config = {
   },
 
   frontendUrl: stripTrailingSlash(process.env.FRONTEND_URL ?? "http://localhost:5173"),
+
+  // SSO: Bitiando es el proveedor de identidad único para el staff (login
+  // único). El hub confía en su cookie de sesión — la reenvía a
+  // GET /api/auth/me de Bitiando para saber quién es, y mapea por email
+  // contra la propia tabla `users` del hub (el portal de clientes no usa esto).
+  bitiando: {
+    apiUrl: stripTrailingSlash(process.env.BITIANDO_API_URL ?? "http://localhost:4000"),
+    sessionCookie: "bitiando_session",
+  },
 
   // URL pública del propio backend (para armar el webhook de MercadoPago).
   // Antes se leía process.env.BACKEND_PUBLIC_URL directo en mercadopago.routes.js;

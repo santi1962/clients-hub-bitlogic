@@ -75,7 +75,11 @@ function AuthGuard({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (loading) return;
     if (!user) {
-      navigate({ to: "/login", replace: true });
+      // Sin sesión (ni propia del hub, ni SSO vía Bitiando): la única forma
+      // de entrar al panel es logueándose en Bitiando. `next` conserva la
+      // URL que se quería visitar para volver ahí después del login.
+      const bitiandoUrl = import.meta.env.VITE_BITIANDO_URL ?? "http://localhost:3000";
+      window.location.href = `${bitiandoUrl}/login?next=${encodeURIComponent(window.location.href)}`;
     } else if (user.role === "cliente") {
       // Los usuarios con rol cliente no deben ver el panel de administración
       navigate({ to: "/portal", replace: true });

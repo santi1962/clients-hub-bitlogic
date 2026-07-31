@@ -127,6 +127,23 @@ export function AppSidebar() {
         {renderGroup("Administración", adminItems)}
 
         <SidebarGroup>
+          <SidebarGroupLabel>Sistemas</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                {/* Login único: misma sesión, sin volver a loguearse. */}
+                <SidebarMenuButton asChild tooltip="Contenido (Bitiando)">
+                  <a href={import.meta.env.VITE_BITIANDO_URL ?? "http://localhost:3000"}>
+                    <ExternalLink />
+                    <span>Contenido (Bitiando)</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
           <SidebarGroupLabel>Cliente</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
