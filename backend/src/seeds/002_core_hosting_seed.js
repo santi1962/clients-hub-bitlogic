@@ -45,9 +45,8 @@ export async function run() {
     [P.business, "Business", "Para empresas con alta demanda", 40, null, null, 35.0],
   ]) {
     await pool.query(
-      `INSERT INTO hosting_plans (id, name, description, storage_gb, websites_limit, emails_limit, monthly_price, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'active')
-       ON CONFLICT (id) DO NOTHING`,
+      `INSERT IGNORE INTO hosting_plans (id, name, description, storage_gb, websites_limit, emails_limit, monthly_price, status)
+       VALUES (?,?,?,?,?,?,?,'active')`,
       [id, name, desc, storage, websites, emails, price],
     );
   }
@@ -139,9 +138,8 @@ export async function run() {
 
   for (const [id, name, company, email, phone, status, notes, createdAt] of clients) {
     await pool.query(
-      `INSERT INTO clients (id, name, company, email, phone, status, notes, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       ON CONFLICT (id) DO NOTHING`,
+      `INSERT IGNORE INTO clients (id, name, company, email, phone, status, notes, created_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
       [id, name, company, email, phone, status, notes, createdAt],
     );
   }
@@ -374,14 +372,13 @@ export async function run() {
     notes,
   ] of services) {
     await pool.query(
-      `INSERT INTO hosting_services (
+      `INSERT IGNORE INTO hosting_services (
          id, client_id, plan_id, domain, status,
          monthly_price, setup_date, next_due_date,
          storage_used_gb, storage_total_gb,
          emails_used, emails_total,
          hestia_username, hestia_url, internal_notes
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-       ON CONFLICT (id) DO NOTHING`,
+       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         id,
         clientId,

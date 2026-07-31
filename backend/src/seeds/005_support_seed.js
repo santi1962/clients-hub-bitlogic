@@ -179,10 +179,9 @@ export async function run() {
 
       // Insert ticket
       const ticketQuery = `
-        INSERT INTO support_tickets
+        INSERT IGNORE INTO support_tickets
           (id, ticket_number, client_id, hosting_service_id, subject, priority, status, assigned_to, created_by, resolved_at, closed_at, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        ON CONFLICT (id) DO NOTHING
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       await client.query(ticketQuery, [
@@ -204,10 +203,9 @@ export async function run() {
       if (messages && messages.length > 0) {
         for (const msg of messages) {
           const msgQuery = `
-            INSERT INTO support_ticket_messages
+            INSERT IGNORE INTO support_ticket_messages
               (id, ticket_id, sender_user_id, sender_name, sender_role, message, is_internal, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ON CONFLICT (id) DO NOTHING
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `;
 
           const msgId = generateSeedId(
