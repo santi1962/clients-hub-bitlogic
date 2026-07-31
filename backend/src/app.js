@@ -50,6 +50,13 @@ const pkgVersion = (() => {
 
 const app = express();
 
+// En producción corre detrás de un reverse proxy (Nginx): sin esto,
+// express-rate-limit tira ERR_ERL_UNEXPECTED_X_FORWARDED_FOR al ver el
+// header X-Forwarded-For de un origen en el que Express no confía.
+if (config.nodeEnv === "production") {
+  app.set("trust proxy", 1);
+}
+
 // ── Contexto de request ──────────────────────────────────────
 // Va antes que todo lo demás para que esté disponible en cualquier log
 // posterior (incluidos los del error handler).
