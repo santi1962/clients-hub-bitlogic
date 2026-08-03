@@ -165,8 +165,10 @@ function CreateAccessDialog({
           </div>
           <CopyField label="Link de acceso al portal" value={portalLoginUrl()} />
           <p className="rounded-md bg-muted/40 p-2.5 text-xs text-muted-foreground">
-            Enviále al cliente el link de arriba junto con su email y contraseña. Van a poder
-            cambiar la contraseña desde el portal una vez adentro.
+            Al crear el acceso le mandamos automáticamente el link, el email y la contraseña por
+            correo. Si el envío falla (o preferís avisarle por otro medio), copiá los datos de
+            arriba y enviáselos vos. Van a poder cambiar la contraseña desde el portal una vez
+            adentro.
           </p>
         </div>
         <DialogFooter>

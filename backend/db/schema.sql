@@ -689,6 +689,37 @@ END$$
 DELIMITER ;
 
 -- ============================================================
+-- hosting_settings
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS hosting_settings (
+  -- Sin DEFAULT (UUID()): igual que company_settings, el único INSERT
+  -- (settings.service.js updateHostingSettings) envía id explícito
+  -- (randomUUID() de Node).
+  id                    CHAR(36)     NOT NULL PRIMARY KEY,
+  hestia_url            TEXT,
+  main_server           TEXT,
+  server_ip             TEXT,
+  default_quota_gb      INT          NOT NULL DEFAULT 5,
+  default_emails        INT          NOT NULL DEFAULT 10,
+  space_alerts_enabled  TINYINT(1)   NOT NULL DEFAULT 1,
+  created_at            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_520_ci;
+
+DROP TRIGGER IF EXISTS trg_hosting_settings_single_row;
+DELIMITER $$
+CREATE TRIGGER trg_hosting_settings_single_row
+BEFORE INSERT ON hosting_settings
+FOR EACH ROW
+BEGIN
+  IF (SELECT COUNT(*) FROM hosting_settings) >= 1 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Solo se permite una configuracion de hosting';
+  END IF;
+END$$
+DELIMITER ;
+
+-- ============================================================
 -- email_templates
 -- ============================================================
 

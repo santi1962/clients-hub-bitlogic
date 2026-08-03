@@ -500,6 +500,53 @@ export const emailService = {
   },
 
   /**
+   * Send portal invite email to a newly-created client user, with their
+   * login link and initial password (staff generates the password in the
+   * UI; hasta esta función, nunca se le avisaba al cliente por ningún medio
+   * automático — quedaba en manos del staff copiarla y mandarla a mano).
+   */
+  async sendPortalInviteEmail({ to, name, password }) {
+    const portalUrl = `${config.frontendUrl}/portal`;
+    const subject = "Acceso a tu portal de cliente — Bitlogic";
+    const html = `
+      <h2>Hola ${name},</h2>
+      <p>Ya podés ingresar a tu portal de cliente para ver tus servicios, dominios y facturación.</p>
+      <p><strong>Link de acceso:</strong> <a href="${portalUrl}">${portalUrl}</a></p>
+      <p><strong>Email:</strong> ${to}<br><strong>Contraseña:</strong> ${password}</p>
+      <p>Vas a poder cambiar la contraseña desde el portal una vez que ingreses.</p>
+      <p>Saludos,<br>Equipo Bitlogic</p>
+    `;
+
+    try {
+      const { success, messageId } = await this.sendEmail({ to, subject, html });
+
+      await logEmail({
+        type: "portal_invite",
+        recipient: to,
+        subject,
+        status: success ? "sent" : "failed",
+        providerId: messageId,
+        sentAt: success ? new Date() : null,
+      });
+
+      return { success, messageId };
+    } catch (err) {
+      await logEmail({
+        type: "portal_invite",
+        recipient: to,
+        subject,
+        status: "failed",
+        errorMessage: err.message,
+      });
+      // Best-effort: si el SMTP no está configurado o falla, no debe romper
+      // la creación del usuario (ya se creó bien en la base) — el caller
+      // reporta emailSent=false para que el staff sepa que igual tiene que
+      // mandarle los datos a mano.
+      return { success: false };
+    }
+  },
+
+  /**
    * Send test email (for admin testing)
    */
   async testEmail(to) {

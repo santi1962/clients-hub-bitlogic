@@ -12,4 +12,10 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Self-hosted en VPS propio (PM2 + Nginx), no Cloudflare/Lovable — necesitamos
+  // un server Node standalone real (con listen() y lectura de PORT), no el
+  // fetch handler de Cloudflare Workers que da el preset por default.
+  nitro: {
+    preset: "node-server",
+  },
 });

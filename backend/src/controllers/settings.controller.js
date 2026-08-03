@@ -131,26 +131,46 @@ export async function updateBillingSettings(req, res) {
  * GET /api/settings/hosting
  * Obtiene la configuración de hosting
  */
-export async function getHostingSettings(req, res) {
-  res.json({
-    hestiaUrl: "https://srv01.bitlogic.com.ar:8083",
-    mainServer: "srv01.bitlogic.com.ar",
-    serverIp: "200.45.12.34",
-    defaultQuotaGb: 5,
-    defaultEmails: 10,
-    spaceAlertsEnabled: true,
-  });
+export async function getHostingSettings(req, res, next) {
+  try {
+    const settings = await settingsService.getHostingSettings();
+    res.json(settings);
+  } catch (err) {
+    next(err);
+  }
 }
 
 /**
  * PUT /api/settings/hosting
  * Actualiza la configuración de hosting
  */
-export async function updateHostingSettings(req, res) {
-  res.json({
-    ...req.body,
-    updatedAt: new Date().toISOString(),
-  });
+export async function updateHostingSettings(req, res, next) {
+  try {
+    const { hestiaUrl, mainServer, serverIp, defaultQuotaGb, defaultEmails, spaceAlertsEnabled } = req.body;
+
+    const settings = await settingsService.updateHostingSettings({
+      hestiaUrl: hestiaUrl?.trim() || null,
+      mainServer: mainServer?.trim() || null,
+      serverIp: serverIp?.trim() || null,
+      defaultQuotaGb: parseInt(defaultQuotaGb, 10) || 0,
+      defaultEmails: parseInt(defaultEmails, 10) || 0,
+      spaceAlertsEnabled: !!spaceAlertsEnabled,
+    });
+
+    await auditService.logAction({
+      user: req.user,
+      requestId: req.requestId,
+      action: "editar",
+      entityType: "configuracion",
+      entityId: "hosting",
+      entityName: "Configuración de hosting",
+      newValues: req.body,
+    });
+
+    res.json(settings);
+  } catch (err) {
+    next(err);
+  }
 }
 
 /**

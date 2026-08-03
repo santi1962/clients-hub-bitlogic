@@ -743,10 +743,14 @@ export function useCreatePortalUser() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { clientId: string; name: string; email: string; password: string }) =>
-      usersApi.createPortalUser(data),
-    onSuccess: () => {
+      usersApi.createPortalUser(data) as Promise<{ emailSent?: boolean }>,
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["portalUsers"] });
-      toast.success("Acceso al portal creado");
+      toast.success(
+        data?.emailSent
+          ? "Acceso creado — le mandamos el link y la contraseña por email"
+          : "Acceso creado, pero no se pudo mandar el email — copiá los datos y enviáselos a mano",
+      );
     },
     onError: (err: Error) => toast.error(err.message ?? "Error al crear acceso"),
   });

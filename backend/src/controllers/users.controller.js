@@ -1,4 +1,5 @@
 import { usersService } from "../services/users.service.js";
+import { emailService } from "../services/email.service.js";
 
 export async function listPortalUsers(req, res, next) {
   try {
@@ -19,7 +20,14 @@ export async function createPortalUser(req, res, next) {
       return res.status(400).json({ error: { message: "La contraseña debe tener al menos 6 caracteres" } });
     }
     const user = await usersService.createPortalUser({ clientId, name, email, password });
-    res.status(201).json(user);
+
+    const { success: emailSent } = await emailService.sendPortalInviteEmail({
+      to: email,
+      name: name || email,
+      password,
+    });
+
+    res.status(201).json({ ...user, emailSent });
   } catch (err) {
     if (err.code === "23505") {
       return res.status(409).json({ error: { message: "Ya existe un usuario con ese email" } });

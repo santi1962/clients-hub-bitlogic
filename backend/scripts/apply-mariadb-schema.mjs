@@ -141,6 +141,11 @@ console.log(`Usando cliente: ${client}\n`);
 const result = spawnSync(
   client,
   [
+    // Ignora ~/.my.cnf / /etc/mysql/my.cnf: en servers con credenciales de
+    // administración guardadas ahí (ej. HestiaCP corriendo como root), esos
+    // archivos tienen prioridad sobre MYSQL_PWD y pisan silenciosamente la
+    // contraseña del usuario de la app, dando "Access denied" engañoso.
+    "--no-defaults",
     "--host", url.hostname,
     "--port", String(url.port || 3306),
     "--user", decodeURIComponent(url.username || "root"),

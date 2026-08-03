@@ -15,7 +15,11 @@ export const Route = createFileRoute("/login")({
  */
 function LoginPage() {
   const bitiandoUrl = import.meta.env.VITE_BITIANDO_URL ?? "http://localhost:3000";
-  const bitiandoLoginUrl = `${bitiandoUrl}/login?next=${encodeURIComponent(window.location.origin + "/")}`;
+  // window no existe durante el render en el servidor (SSR real con el preset
+  // node-server de Nitro) — el valor real solo importa una vez hidratado en
+  // el cliente, cuando este componente se re-evalúa con window ya disponible.
+  const origin = typeof window !== "undefined" ? window.location.origin : bitiandoUrl;
+  const bitiandoLoginUrl = `${bitiandoUrl}/login?next=${encodeURIComponent(origin + "/")}`;
 
   useEffect(() => {
     const t = setTimeout(() => {
